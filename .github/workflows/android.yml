@@ -27,20 +27,15 @@ jobs:
 
       - name: Set up Android SDK
         uses: android-actions/setup-android@v3
+        with:
+          packages: |
+            platform-tools
+            platforms;android-34
+            build-tools;34.0.0
 
-      - name: Install Android SDK packages
+      - name: Accept Android licenses
         shell: bash
-        run: |
-          echo "ANDROID_SDK_ROOT=$ANDROID_SDK_ROOT"
-          sdkmanager --version
-
-          yes | sdkmanager --licenses --sdk_root=$ANDROID_SDK_ROOT > /dev/null || true
-
-          sdkmanager --install \
-            "platform-tools" \
-            "platforms;android-34" \
-            "build-tools;34.0.0" \
-            --sdk_root=$ANDROID_SDK_ROOT
+        run: yes | sdkmanager --licenses --sdk_root=$ANDROID_SDK_ROOT > /dev/null || true
 
       - name: Build APKs
         run: ./gradlew assembleDebug assembleRelease --no-daemon --stacktrace
