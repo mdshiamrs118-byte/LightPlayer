@@ -1,5 +1,9 @@
 package com.lightplayer.subtitle
 
+import java.nio.ByteBuffer
+import java.nio.charset.CharacterCodingException
+import java.nio.charset.Charset
+import java.nio.charset.CodingErrorAction
 import kotlin.math.max
 
 data class Cue(val startMs: Long, val endMs: Long, val text: String)
@@ -25,6 +29,33 @@ class SubtitleTrack(val cues: List<Cue>) {
  */
 object SubtitleParser {
 
+    /** Decodes raw subtitle bytes: UTF-16 (BOM or no BOM), UTF-8, else Windows-1252. */
+    fun decode(bytes: ByteArray): String {
+        if (bytes.size >= 2) {
+            val b0 = bytes[0].toInt() and 0xFF
+            val b1 = bytes[1].toInt() and 0xFF
+            if (b0 == 0xFF && b1 == 0xFE) return String(bytes, 2, bytes.size - 2, Charsets.UTF_16LE)
+            if (b0 == 0xFE && b1 == 0xFF) return String(bytes, 2, bytes.size - 2, Charsets.UTF_16BE)
+        }
+        if (bytes.size >= 4) {
+            // UTF-16 without BOM: ASCII text interleaved with zero bytes.
+            if (bytes[1].toInt() == 0 && bytes[3].toInt() == 0 && bytes[0].toInt() != 0) {
+                return String(bytes, Charsets.UTF_16LE)
+            }
+            if (bytes[0].toInt() == 0 && bytes[2].toInt() == 0 && bytes[1].toInt() != 0) {
+                return String(bytes, Charsets.UTF_16BE)
+            }
+        }
+        val decoder = Charsets.UTF_8.newDecoder()
+            .onMalformedInput(CodingErrorAction.REPORT)
+            .onUnmappableCharacter(CodingErrorAction.REPORT)
+        return try {
+            decoder.decode(ByteBuffer.wrap(bytes)).toString()
+        } catch (e: CharacterCodingException) {
+            String(bytes, Charset.forName("windows-1252"))
+        }
+    }
+
     fun parse(fileName: String, content: String): SubtitleTrack {
         val lower = fileName.lowercase()
         val clean = content
@@ -38,8 +69,18 @@ object SubtitleParser {
             else -> parseSrt(clean)
         }
         return SubtitleTrack(
-            cues.filter { it.text.isNotBlank() }.sortedBy { it.startMs }
+            cues.filter { it.text.isNotBlank() && !isDrawing(it.text) }.sortedBy { it.startMs }
         )
+    }
+
+    /** ASS vector drawings ("m 0 0 l 100 0 ...") sometimes leak into SRT/VTT conversions. */
+    private fun isDrawing(text: String): Boolean {
+        val tokens = text.trim().split(' ').filter { it.isNotEmpty() }
+        if (tokens.size < 3) return false
+        val first = tokens[0]
+        if (first != "m" && first != "n") return false
+        val commands = setOf("m", "n", "l", "b", "s", "c", "p")
+        return tokens.all { it in commands || it.toDoubleOrNull() != null }
     }
 
     // ---------- SRT / VTT ----------
@@ -83,16 +124,37 @@ object SubtitleParser {
 
     private fun parseAss(text: String): List<Cue> {
         val out = ArrayList<Cue>()
+        var startIdx = 1
+        var endIdx = 2
+        var textIdx = 9
+        var fieldCount = 10
+        var inEvents = false
         for (raw in text.split("\n")) {
             val line = raw.trim()
+            if (line.startsWith("[")) {
+                inEvents = line.equals("[Events]", ignoreCase = true)
+                continue
+            }
+            if (inEvents && line.startsWith("Format:", ignoreCase = true)) {
+                val names = line.substringAfter(':').split(",").map { it.trim().lowercase() }
+                val s = names.indexOf("start")
+                val e = names.indexOf("end")
+                val t = names.indexOf("text")
+                if (s >= 0 && e >= 0 && t >= 0) {
+                    startIdx = s
+                    endIdx = e
+                    textIdx = t
+                    fieldCount = names.size
+                }
+                continue
+            }
             if (!line.startsWith("Dialogue:", ignoreCase = true)) continue
             val body = line.substringAfter(':').trim()
-            // Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
-            val parts = body.split(",", limit = 10)
-            if (parts.size < 10) continue
-            val start = parseTimestamp(parts[1]) ?: continue
-            val end = parseTimestamp(parts[2]) ?: continue
-            val txt = sanitize(parts[9])
+            val parts = body.split(",", limit = fieldCount)
+            if (parts.size < fieldCount) continue
+            val start = parseTimestamp(parts[startIdx]) ?: continue
+            val end = parseTimestamp(parts[endIdx]) ?: continue
+            val txt = sanitize(parts[textIdx])
             if (txt.isNotBlank()) out.add(Cue(start, max(end, start), txt))
         }
         return out
@@ -102,7 +164,7 @@ object SubtitleParser {
 
     /** Accepts HH:MM:SS.mmm, HH:MM:SS,mmm, MM:SS.mmm and ASS centiseconds (H:MM:SS.cc). */
     fun parseTimestamp(raw: String): Long? {
-        val token = raw.trim().split(Regex("\\s+")).firstOrNull() ?: return null
+        val token = raw.trim().split(' ', '\t').firstOrNull() ?: return null
         val parts = token.split(":")
         if (parts.size !in 2..3) return null
 
@@ -145,17 +207,35 @@ object SubtitleParser {
         }
     }
 
+    /** Removes everything from [open] to the next [close] (ASS {tags}, HTML <tags>). */
+    private fun stripBetween(s: String, open: Char, close: Char): String {
+        val sb = StringBuilder(s.length)
+        var i = 0
+        while (i < s.length) {
+            val c = s[i]
+            if (c == open) {
+                val j = s.indexOf(close, i + 1)
+                if (j >= 0) {
+                    i = j + 1
+                    continue
+                }
+            }
+            sb.append(c)
+            i++
+        }
+        return sb.toString()
+    }
+
     private fun sanitize(raw: String): String {
-        var t = raw
-        t = t.replace(Regex("\\{[^}]*}"), "")          // ASS override tags
-        t = t.replace(Regex("<[^>]+>"), "")            // HTML tags
-        t = t.replace(Regex("\\\\N|\\\\n|\\\\h"), " ") // ASS line/space breaks
+        var t = stripBetween(raw, '{', '}')
+        t = stripBetween(t, '<', '>')
+        t = t.replace("\\N", " ").replace("\\n", " ").replace("\\h", " ")
         t = t.replace("&nbsp;", " ")
             .replace("&amp;", "&")
             .replace("&lt;", "<")
             .replace("&gt;", ">")
             .replace("&quot;", "\"")
             .replace("&#39;", "'")
-        return t.replace(Regex("\\s+"), " ").trim()
+        return t.split(' ', '\t', '\n', '\r').filter { it.isNotEmpty() }.joinToString(" ")
     }
 }

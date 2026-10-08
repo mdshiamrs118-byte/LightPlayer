@@ -40,6 +40,9 @@ class TtsGenerator(private val context: Context) {
     }
 
     companion object {
+        /** A cue is skipped when earlier speech is still running this far past its start. */
+        private const val MAX_LAG_MS = 1500L
+
         fun buildKey(parts: List<String>): String {
             val md = MessageDigest.getInstance("SHA-256")
             for (p in parts) {
@@ -131,6 +134,12 @@ class TtsGenerator(private val context: Context) {
                     lastMs = maxOf(lastMs + parsed.header.bytesToMs(parsed.pcm.size.toLong()), cue.startMs)
                 } else {
                     val h = header!!
+                    if (lastMs - cue.startMs > MAX_LAG_MS) {
+                        // Overlapping on-screen text etc.: skipping keeps later lines in sync.
+                        done++
+                        progress(listener, done, spoken.size, preparing = false)
+                        continue
+                    }
                     if (cue.startMs > lastMs) {
                         writeSilence(raf, h.msToBytes(cue.startMs - lastMs))
                         lastMs = cue.startMs
@@ -239,7 +248,9 @@ class TtsGenerator(private val context: Context) {
     }
 
     private fun sanitize(name: String): String {
-        var t = name.replace(Regex("[/\\\\:*?\"<>|]"), "_").replace(" ~ ", "-").trim()
+        val sb = StringBuilder(name.length)
+        for (ch in name) sb.append(if (ch in "/\\:*?\"<>|") '_' else ch)
+        var t = sb.toString().replace(" ~ ", "-").trim()
         if (t.isEmpty()) t = "audio"
         if (t.length > 60) t = t.substring(0, 60)
         return t

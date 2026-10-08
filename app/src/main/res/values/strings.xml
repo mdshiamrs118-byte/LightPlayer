@@ -27,6 +27,8 @@
     <string name="player_video_volume">Video volume</string>
     <string name="player_tts_volume">Subtitle TTS volume</string>
     <string name="player_no_subtitles">No cues found in that subtitle file</string>
+    <string name="player_no_subtitles_fmt">No subtitle lines found in \"%1$s\" (%2$d characters read)</string>
+    <string name="player_subtitle_error">Could not parse \"%1$s\": %2$s</string>
     <string name="player_bad_subtitle">Unsupported or corrupt subtitle file</string>
     <string name="player_tts_loaded_cache">TTS track loaded from cache</string>
     <string name="player_tts_generated">TTS audio saved to Music — it\'s now in the Music tab</string>

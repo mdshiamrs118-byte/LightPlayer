@@ -332,9 +332,15 @@ class PlayerActivity : AppCompatActivity() {
                     return@post
                 }
                 val (name, text) = result
-                val parsed = runCatching { SubtitleParser.parse(name, text) }.getOrNull()
-                if (parsed == null || parsed.cues.isEmpty()) {
-                    Toast.makeText(this, R.string.player_no_subtitles, Toast.LENGTH_SHORT).show()
+                val outcome = runCatching { SubtitleParser.parse(name, text) }
+                val parsed = outcome.getOrNull()
+                if (parsed == null) {
+                    val why = outcome.exceptionOrNull()?.toString() ?: "unknown error"
+                    Toast.makeText(this, getString(R.string.player_subtitle_error, name, why), Toast.LENGTH_LONG).show()
+                    return@post
+                }
+                if (parsed.cues.isEmpty()) {
+                    Toast.makeText(this, getString(R.string.player_no_subtitles_fmt, name, text.length), Toast.LENGTH_LONG).show()
                     return@post
                 }
                 track = parsed
@@ -361,9 +367,8 @@ class PlayerActivity : AppCompatActivity() {
             if (size > MAX_SUBTITLE_BYTES) {
                 null
             } else {
-                val text = contentResolver.openInputStream(uri)
-                    ?.bufferedReader(Charsets.UTF_8)?.use { it.readText() }
-                if (text == null) null else Pair(name, text)
+                val bytes = contentResolver.openInputStream(uri)?.use { it.readBytes() }
+                if (bytes == null) null else Pair(name, SubtitleParser.decode(bytes))
             }
         } catch (t: Throwable) {
             null
