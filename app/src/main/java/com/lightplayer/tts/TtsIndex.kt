@@ -13,7 +13,9 @@ data class TtsEntry(
     val createdAt: Long,
     val durationMs: Long,
     val sizeBytes: Long,
-    val fileName: String
+    val fileName: String,
+    /** Hash of the subtitle's text + timing; lets any video/subtitle file with the same lines reuse this audio. */
+    val contentKey: String = ""
 )
 
 /** Persistent local index of every generated TTS track (cache lookups + metadata). */
@@ -63,7 +65,8 @@ class TtsIndex(context: Context) {
                         createdAt = o.optLong("createdAt"),
                         durationMs = o.optLong("durationMs"),
                         sizeBytes = o.optLong("sizeBytes"),
-                        fileName = o.optString("fileName")
+                        fileName = o.optString("fileName"),
+                        contentKey = o.optString("contentKey")
                     )
                 )
             }
@@ -87,6 +90,7 @@ class TtsIndex(context: Context) {
                         put("durationMs", e.durationMs)
                         put("sizeBytes", e.sizeBytes)
                         put("fileName", e.fileName)
+                        put("contentKey", e.contentKey)
                     }
                 )
             }

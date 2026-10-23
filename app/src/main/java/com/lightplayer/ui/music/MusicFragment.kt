@@ -10,7 +10,9 @@ import android.view.LayoutInflater
 import android.view.View
 import android.view.ViewGroup
 import android.widget.SeekBar
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.fragment.app.Fragment
+import com.lightplayer.databinding.DialogTtsGenerateBinding
 import com.google.android.material.dialog.MaterialAlertDialogBuilder
 import com.lightplayer.R
 import com.lightplayer.databinding.FragmentMusicBinding
@@ -28,6 +30,16 @@ class MusicFragment : Fragment() {
 
     private var player: MediaPlayer? = null
     private var currentUri: Uri? = null
+
+    private var converter: BatchTtsConverter? = null
+    private var batchDialog: androidx.appcompat.app.AlertDialog? = null
+    private var batchBinding: DialogTtsGenerateBinding? = null
+
+    // Several subtitle files at once (the system picker allows multi-select).
+    private val subtitlesPicker =
+        registerForActivityResult(ActivityResultContracts.OpenMultipleDocuments()) { uris ->
+            if (!uris.isNullOrEmpty()) startBatch(uris)
+        }
 
     private val ticker = Handler(Looper.getMainLooper())
     private val tick = object : Runnable {
@@ -60,6 +72,9 @@ class MusicFragment : Fragment() {
         binding.recycler.layoutManager = androidx.recyclerview.widget.LinearLayoutManager(requireContext())
         binding.recycler.adapter = adapter
 
+        binding.btnConvert.setOnClickListener {
+            if (converter == null) subtitlesPicker.launch(arrayOf("*/*"))
+        }
         binding.npPlay.setOnClickListener { playPause() }
         binding.npStop.setOnClickListener { stopPlayback() }
         binding.npSeek.setOnSeekBarChangeListener(object : SeekBar.OnSeekBarChangeListener {
@@ -82,6 +97,9 @@ class MusicFragment : Fragment() {
     }
 
     override fun onDestroyView() {
+        converter?.cancel()
+        converter = null
+        dismissBatchDialog()
         ticker.removeCallbacks(tick)
         releasePlayer()
         binding.recycler.adapter = null
@@ -202,6 +220,88 @@ class MusicFragment : Fragment() {
                 }.start()
             }
             .setNegativeButton(R.string.action_cancel, null)
+            .show()
+    }
+
+    // ---------- batch subtitle -> audio ----------
+
+    private fun startBatch(uris: List<Uri>) {
+        if (converter != null || _binding == null) return
+        val ctx = requireContext()
+
+        val db = DialogTtsGenerateBinding.inflate(layoutInflater)
+        batchBinding = db
+        db.dlgProgress.isIndeterminate = true
+        db.dlgTitle.text = getString(R.string.batch_title_fmt, 1, uris.size)
+        db.dlgSub.setText(R.string.dlg_generating_preparing)
+        db.dlgPercent.text = ""
+        batchDialog = MaterialAlertDialogBuilder(ctx)
+            .setView(db.root)
+            .setCancelable(false)
+            .create()
+        batchDialog?.show()
+        binding.root.keepScreenOn = true
+
+        val conv = BatchTtsConverter(ctx, uris, object : BatchTtsConverter.Listener {
+            override fun onFileStart(index: Int, total: Int, name: String) {
+                val d = batchBinding ?: return
+                d.dlgTitle.text = getString(R.string.batch_title_fmt, index + 1, total)
+                d.dlgSub.text = name
+                d.dlgProgress.isIndeterminate = true
+                d.dlgPercent.text = ""
+            }
+
+            override fun onCueProgress(done: Int, total: Int, preparing: Boolean) {
+                val d = batchBinding ?: return
+                if (preparing || total <= 0) {
+                    d.dlgProgress.isIndeterminate = true
+                    d.dlgPercent.text = ""
+                } else {
+                    d.dlgProgress.isIndeterminate = false
+                    d.dlgProgress.max = total
+                    d.dlgProgress.progress = done
+                    d.dlgPercent.text = "${done * 100 / total}%"
+                }
+            }
+
+            override fun onFinished(results: List<BatchTtsConverter.Result>, canceled: Boolean) {
+                converter = null
+                dismissBatchDialog()
+                if (_binding == null || !isAdded) return
+                binding.root.keepScreenOn = false
+                showBatchSummary(results, canceled)
+                loadTracks()
+            }
+        })
+        converter = conv
+        db.dlgCancel.setOnClickListener { conv.cancel() }
+        conv.start()
+    }
+
+    private fun dismissBatchDialog() {
+        try { batchDialog?.dismiss() } catch (_: Throwable) {}
+        batchDialog = null
+        batchBinding = null
+        if (_binding != null) binding.root.keepScreenOn = false
+    }
+
+    private fun showBatchSummary(results: List<BatchTtsConverter.Result>, canceled: Boolean) {
+        val converted = results.count { it.status == BatchTtsConverter.Status.CONVERTED }
+        val reused = results.count { it.status == BatchTtsConverter.Status.REUSED }
+        val failed = results.filter { it.status == BatchTtsConverter.Status.FAILED }
+
+        val lines = ArrayList<String>()
+        lines.add(getString(R.string.batch_summary_new, converted))
+        lines.add(getString(R.string.batch_summary_reused, reused))
+        if (failed.isNotEmpty()) {
+            lines.add(getString(R.string.batch_summary_failed, failed.size))
+            failed.forEach { lines.add(getString(R.string.batch_failed_item, it.name, it.detail)) }
+        }
+
+        MaterialAlertDialogBuilder(requireContext())
+            .setTitle(if (canceled) R.string.batch_summary_stopped else R.string.batch_summary_done)
+            .setMessage(lines.joinToString("\n"))
+            .setPositiveButton(android.R.string.ok, null)
             .show()
     }
 }

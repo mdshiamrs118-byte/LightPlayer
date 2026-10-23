@@ -30,7 +30,8 @@ class TtsGenerator(private val context: Context) {
         val key: String,
         val videoTitle: String,
         val subtitleName: String,
-        val videoDurationMs: Long
+        val videoDurationMs: Long,
+        val contentKey: String = ""
     )
 
     interface Listener {
@@ -196,7 +197,8 @@ class TtsGenerator(private val context: Context) {
                 createdAt = System.currentTimeMillis(),
                 durationMs = durationMs,
                 sizeBytes = sizeBytes,
-                fileName = fileName
+                fileName = fileName,
+                contentKey = meta.contentKey
             )
         )
         outFile.delete()

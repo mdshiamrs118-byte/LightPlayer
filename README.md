@@ -53,6 +53,8 @@ It has no ads, no accounts and no internet requirement. Everything stays on your
 - Shows the subtitles over the video
 - Generates a **spoken audio track** from the subtitles with the system TTS engine, and plays it with its own volume slider
 - Generated tracks are saved to your **Music** folder and listed in the Music tab, so they are only generated once per video and subtitle pair
+- **Batch conversion:** in the Music tab, tap **Convert subtitles to audio**, select as many subtitle files as you like, and they are converted one after another with a progress dialog and a summary at the end
+- **Never converts twice:** if a subtitle already has audio (made earlier in the player, in the Music tab, or earlier in the same batch), the existing audio is reused instead of being generated again
 - Settings for TTS engine, speech rate and pitch
 
 ## 📲 Getting started
@@ -80,14 +82,15 @@ Allow access to videos when asked. If you skip this, you can still play anything
 | Mix or adjust volume | Use the **Audio volume** slider |
 | Show subtitles and generate speech | Tap the subtitle button → choose an `.srt`, `.vtt` or `.ass` file |
 | Turn the spoken track on or off | Tap the **TTS** pill |
-| Find or delete generated audio | **Music** tab |
+| Convert many subtitle files to audio at once | **Music** tab → **Convert subtitles to audio** → select several subtitle files |
+| Find or delete generated audio | **Music** tab (long-press a track to delete it) |
 | Change voice, speed or pitch | **Settings** tab |
 
 ### About added audio tracks
 When you add an external audio track, it **replaces** the video's own audio. Switch back by choosing one of the embedded tracks in the **♪** menu. The track follows the video when you seek or pause. If it is shorter than the video, it simply stops at its end.
 
 ### About subtitle-to-speech
-Speech is generated once, then cached. Opening the same video with the same subtitle file loads the saved track instantly. Quality and available voices depend on the TTS engine installed on your phone (for example Google Speech Services), which you can pick in **Settings**.
+Speech is generated once, then cached. Audio is matched by the **content of the subtitle** (its lines and timing), not by file name or video, so the same subtitles never get converted twice, whether you load them in the player or convert them in bulk from the Music tab. Audio you already generated with an earlier version of the app is recognised too. Quality and available voices depend on the TTS engine installed on your phone (for example Google Speech Services), which you can pick in **Settings**.
 
 ## 🛠 Building from source
 

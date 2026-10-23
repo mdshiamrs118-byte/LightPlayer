@@ -18,9 +18,19 @@
     <string name="video_pick_error">Couldn\'t open that file</string>
 
     <!-- Music tab -->
-    <string name="music_empty">No generated TTS audio yet.\nOpen a video, pick a subtitle file, and its audio track will appear here.</string>
+    <string name="music_empty">No generated TTS audio yet.\nOpen a video and pick a subtitle file, or tap the button below to convert subtitle files to audio.</string>
     <string name="music_delete_title">Delete generated track?</string>
     <string name="music_delete_msg">%1$s will be removed from your Music folder.</string>
+    <string name="music_convert">Convert subtitles to audio</string>
+    <string name="batch_title_fmt">Converting subtitles (%1$d/%2$d)</string>
+    <string name="batch_file_fmt">%1$s</string>
+    <string name="batch_cue_fmt">%1$s\nLine %2$d / %3$d</string>
+    <string name="batch_summary_done">Conversion finished</string>
+    <string name="batch_summary_stopped">Conversion stopped</string>
+    <string name="batch_summary_new">%1$d converted</string>
+    <string name="batch_summary_reused">%1$d already had audio (reused)</string>
+    <string name="batch_summary_failed">%1$d failed</string>
+    <string name="batch_failed_item">• %1$s: %2$s</string>
     <string name="action_delete">Delete</string>
     <string name="action_cancel">Cancel</string>
 

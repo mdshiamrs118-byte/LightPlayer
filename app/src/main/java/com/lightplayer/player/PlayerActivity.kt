@@ -43,6 +43,7 @@ import com.lightplayer.subtitle.Cue
 import com.lightplayer.subtitle.SubtitleParser
 import com.lightplayer.subtitle.SubtitleTrack
 import com.lightplayer.tts.TtsGenerator
+import com.lightplayer.tts.TtsCache
 import com.lightplayer.tts.TtsIndex
 import com.lightplayer.util.Formats
 import java.util.Locale
@@ -622,12 +623,21 @@ class PlayerActivity : AppCompatActivity() {
             index.remove(cached.uri)
         }
 
+        // ---- same subtitle already converted (here or from the Music tab)? ----
+        val contentKey = TtsCache.contentKey(parsed.cues)
+        val reuse = TtsCache.find(this, index, subName, parsed.cues)
+        if (reuse != null) {
+            loadTtsTrack(Uri.parse(reuse.uri))
+            Toast.makeText(this, R.string.player_tts_loaded_cache, Toast.LENGTH_SHORT).show()
+            return
+        }
+
         // ---- generate ----
         val duration = if (ready && durationMs() > 0) durationMs() else declaredDuration
         showGeneratingDialog()
         generator.generate(
             parsed.cues,
-            TtsGenerator.Meta(key, videoTitle, subName, duration.toLong()),
+            TtsGenerator.Meta(key, videoTitle, subName, duration.toLong(), contentKey),
             object : TtsGenerator.Listener {
                 override fun onProgress(done: Int, total: Int, preparing: Boolean) {
                     val db = dialogBinding ?: return
