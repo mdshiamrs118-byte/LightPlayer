@@ -45,9 +45,12 @@ object VideoRepository {
         )
 
         val buckets = LinkedHashMap<String, Bucket>()
+        // VOLUME_EXTERNAL covers every mounted volume (SD cards, USB), not just the
+        // primary one — EXTERNAL_CONTENT_URI silently hid videos stored elsewhere.
+        val collection = MediaStore.Video.Media.getContentUri(MediaStore.VOLUME_EXTERNAL)
 
         context.contentResolver.query(
-            MediaStore.Video.Media.EXTERNAL_CONTENT_URI,
+            collection,
             projection,
             null,
             null,
@@ -64,7 +67,7 @@ object VideoRepository {
 
             while (c.moveToNext()) {
                 val id = c.getLong(iId)
-                val title = c.getString(iName) ?: "video"
+                val title = c.getString(iName) ?: "video $id"
                 val date = c.getLong(iDate)
                 val size = c.getLong(iSize)
                 val duration = c.getLong(iDur)
@@ -85,7 +88,7 @@ object VideoRepository {
                 bucket.videos.add(
                     VideoItem(
                         id = id,
-                        uri = ContentUris.withAppendedId(MediaStore.Video.Media.EXTERNAL_CONTENT_URI, id),
+                        uri = ContentUris.withAppendedId(collection, id),
                         title = title,
                         dateAdded = date,
                         size = size,

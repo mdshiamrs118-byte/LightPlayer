@@ -2,6 +2,8 @@ package com.lightplayer.ui.video
 
 import android.content.Intent
 import android.os.Bundle
+import android.widget.Toast
+import androidx.activity.result.contract.ActivityResultContracts
 import android.view.LayoutInflater
 import android.view.View
 import android.view.ViewGroup
@@ -21,6 +23,13 @@ class VideoFragment : Fragment() {
     private val expanded = LinkedHashSet<String>()
     private var currentFolders: List<FolderItem> = emptyList()
 
+    // Android's system file picker: lets the user play any video, even ones the
+    // media library doesn't list.
+    private val filePicker =
+        registerForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
+            if (uri != null) openPicked(uri)
+        }
+
     override fun onCreateView(inflater: LayoutInflater, container: ViewGroup?, savedInstanceState: Bundle?): View {
         _binding = FragmentVideoBinding.inflate(inflater, container, false)
         return binding.root
@@ -33,6 +42,16 @@ class VideoFragment : Fragment() {
         )
         binding.recycler.layoutManager = androidx.recyclerview.widget.LinearLayoutManager(requireContext())
         binding.recycler.adapter = adapter
+        binding.openFileFab.setOnClickListener {
+            try {
+                filePicker.launch(arrayOf("video/*", "application/x-matroska", "application/octet-stream"))
+            } catch (t: Throwable) {
+                Toast.makeText(requireContext(), R.string.video_pick_error, Toast.LENGTH_SHORT).show()
+            }
+        }
+        binding.limitedBanner.setOnClickListener {
+            (activity as? MainActivity)?.requestVideoPermission { scan() }
+        }
         binding.grantButton.setOnClickListener {
             (activity as? MainActivity)?.requestVideoPermission { granted ->
                 if (granted) scan()
@@ -43,8 +62,13 @@ class VideoFragment : Fragment() {
     override fun onResume() {
         super.onResume()
         if (_binding == null || !isAdded) return
-        if (MainActivity.hasVideoPermission(requireContext())) scan()
-        else showPermissionState()
+        if (MainActivity.hasVideoPermission(requireContext())) {
+            binding.limitedBanner.visibility =
+                if (MainActivity.hasPartialVideoAccess(requireContext())) View.VISIBLE else View.GONE
+            scan()
+        } else {
+            showPermissionState()
+        }
     }
 
     override fun onDestroyView() {
@@ -76,6 +100,9 @@ class VideoFragment : Fragment() {
                 if (_binding == null || !isAdded) return@runOnUiThread
                 binding.progress.visibility = View.GONE
                 currentFolders = folders
+                val total = folders.sumOf { it.videos.size }
+                binding.headerCount.text = if (total == 1) getString(R.string.video_one_count)
+                else getString(R.string.video_count_fmt, total)
                 if (folders.isEmpty()) {
                     binding.emptyState.visibility = View.VISIBLE
                     binding.emptyText.setText(R.string.video_empty)
@@ -95,8 +122,22 @@ class VideoFragment : Fragment() {
     private fun open(video: VideoItem) {
         val intent = Intent(requireContext(), PlayerActivity::class.java).apply {
             data = video.uri
+            addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
             putExtra(PlayerActivity.EXTRA_TITLE, video.title)
             putExtra(PlayerActivity.EXTRA_DURATION, video.durationMs)
+        }
+        startActivity(intent)
+    }
+
+    private fun openPicked(uri: android.net.Uri) {
+        try {
+            requireContext().contentResolver.takePersistableUriPermission(
+                uri, Intent.FLAG_GRANT_READ_URI_PERMISSION
+            )
+        } catch (_: Throwable) { /* not every provider offers persistable grants */ }
+        val intent = Intent(requireContext(), PlayerActivity::class.java).apply {
+            data = uri
+            addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
         }
         startActivity(intent)
     }

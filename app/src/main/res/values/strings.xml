@@ -12,6 +12,10 @@
     <string name="video_empty">No videos found on this device</string>
     <string name="video_count_fmt">%1$d videos</string>
     <string name="video_one_count">1 video</string>
+    <string name="video_open_file">Open file</string>
+    <string name="video_title">Videos</string>
+    <string name="video_limited">Limited access: only some videos are visible. Tap to allow all.</string>
+    <string name="video_pick_error">Couldn\'t open that file</string>
 
     <!-- Music tab -->
     <string name="music_empty">No generated TTS audio yet.\nOpen a video, pick a subtitle file, and its audio track will appear here.</string>
@@ -24,7 +28,7 @@
     <string name="player_pick_subtitle">Choose subtitle file</string>
     <string name="player_tts_active">TTS ON</string>
     <string name="player_tts_off">TTS OFF</string>
-    <string name="player_video_volume">Video volume</string>
+    <string name="player_video_volume">Audio volume</string>
     <string name="player_tts_volume">Subtitle TTS volume</string>
     <string name="player_no_subtitles">No cues found in that subtitle file</string>
     <string name="player_no_subtitles_fmt">No subtitle lines found in \"%1$s\" (%2$d characters read)</string>
@@ -37,6 +41,17 @@
     <string name="dlg_generating_title">Generating TTS Audio…</string>
     <string name="dlg_generating_preparing">Preparing text-to-speech engine…</string>
     <string name="dlg_generating_fmt">Synthesizing cue %1$d / %2$d</string>
+
+    <string name="player_error_play_fmt">Can\'t play this video (%1$s)</string>
+    <string name="player_audio_title">Audio track</string>
+    <string name="player_audio_add">Add audio file…</string>
+    <string name="player_audio_none">No audio tracks found in this video.\nYou can add your own audio file.</string>
+    <string name="player_audio_embedded_fmt">Track %1$d</string>
+    <string name="player_audio_external_fmt">Added: %1$s</string>
+    <string name="player_audio_added">Audio track added</string>
+    <string name="player_audio_error">Couldn\'t play that audio file</string>
+    <string name="player_back_10">−10s</string>
+    <string name="player_fwd_10">+10s</string>
 
     <!-- Settings -->
     <string name="settings_tts_header">TEXT-TO-SPEECH</string>
@@ -62,4 +77,7 @@
     <string name="cd_stop">Stop</string>
     <string name="cd_subtitles">Choose subtitle file</string>
     <string name="cd_delete">Delete</string>
+    <string name="cd_audio">Audio tracks</string>
+    <string name="cd_rewind">Back 10 seconds</string>
+    <string name="cd_forward">Forward 10 seconds</string>
 </resources>

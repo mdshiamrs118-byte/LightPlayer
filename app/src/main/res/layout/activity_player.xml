@@ -19,6 +19,18 @@
         android:visibility="gone" />
 
     <TextView
+        android:id="@+id/seekHint"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_gravity="center"
+        android:background="@drawable/bg_subtitles"
+        android:paddingHorizontal="16dp"
+        android:paddingVertical="8dp"
+        android:textColor="@android:color/white"
+        android:textSize="18sp"
+        android:visibility="gone" />
+
+    <TextView
         android:id="@+id/subtitleText"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
@@ -34,6 +46,51 @@
         android:textSize="17sp"
         android:visibility="invisible" />
 
+    <!-- Top bar -->
+    <LinearLayout
+        android:id="@+id/topBar"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_gravity="top"
+        android:background="@drawable/bg_player_gradient_top"
+        android:gravity="center_vertical"
+        android:orientation="horizontal"
+        android:paddingHorizontal="10dp"
+        android:paddingTop="12dp"
+        android:paddingBottom="28dp">
+
+        <ImageButton
+            android:id="@+id/btnBack"
+            android:layout_width="44dp"
+            android:layout_height="44dp"
+            android:background="?attr/selectableItemBackgroundBorderless"
+            android:contentDescription="@string/cd_back"
+            android:src="@drawable/ic_back"
+            android:tint="@android:color/white" />
+
+        <TextView
+            android:id="@+id/videoTitle"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_marginStart="6dp"
+            android:layout_weight="1"
+            android:ellipsize="end"
+            android:maxLines="1"
+            android:textColor="@android:color/white"
+            android:textSize="16sp"
+            android:textStyle="bold" />
+
+        <ImageButton
+            android:id="@+id/btnClose"
+            android:layout_width="44dp"
+            android:layout_height="44dp"
+            android:background="?attr/selectableItemBackgroundBorderless"
+            android:contentDescription="@string/cd_close"
+            android:src="@drawable/ic_close"
+            android:tint="@android:color/white" />
+    </LinearLayout>
+
+    <!-- Bottom controls -->
     <LinearLayout
         android:id="@+id/controls"
         android:layout_width="match_parent"
@@ -44,42 +101,6 @@
         android:paddingHorizontal="14dp"
         android:paddingTop="28dp"
         android:paddingBottom="14dp">
-
-        <LinearLayout
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:gravity="center_vertical"
-            android:orientation="horizontal">
-
-            <ImageButton
-                android:id="@+id/btnBack"
-                android:layout_width="40dp"
-                android:layout_height="40dp"
-                android:background="?attr/selectableItemBackgroundBorderless"
-                android:contentDescription="@string/cd_back"
-                android:src="@drawable/ic_back"
-                android:tint="@android:color/white" />
-
-            <TextView
-                android:id="@+id/videoTitle"
-                android:layout_width="0dp"
-                android:layout_height="wrap_content"
-                android:layout_marginStart="6dp"
-                android:layout_weight="1"
-                android:ellipsize="end"
-                android:maxLines="1"
-                android:textColor="@android:color/white"
-                android:textSize="15sp" />
-
-            <ImageButton
-                android:id="@+id/btnClose"
-                android:layout_width="40dp"
-                android:layout_height="40dp"
-                android:background="?attr/selectableItemBackgroundBorderless"
-                android:contentDescription="@string/cd_close"
-                android:src="@drawable/ic_close"
-                android:tint="@android:color/white" />
-        </LinearLayout>
 
         <LinearLayout
             android:layout_width="match_parent"
@@ -118,6 +139,7 @@
         <LinearLayout
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
+            android:layout_marginTop="2dp"
             android:gravity="center_vertical"
             android:orientation="horizontal">
 
@@ -130,26 +152,50 @@
                 android:src="@drawable/ic_play"
                 android:tint="@android:color/white" />
 
+            <TextView
+                android:id="@+id/btnRewind"
+                android:layout_width="wrap_content"
+                android:layout_height="34dp"
+                android:layout_marginStart="4dp"
+                android:background="@drawable/bg_pill"
+                android:contentDescription="@string/cd_rewind"
+                android:gravity="center"
+                android:paddingHorizontal="10dp"
+                android:text="@string/player_back_10"
+                android:textColor="@android:color/white"
+                android:textSize="12sp" />
+
+            <TextView
+                android:id="@+id/btnForward"
+                android:layout_width="wrap_content"
+                android:layout_height="34dp"
+                android:layout_marginStart="6dp"
+                android:background="@drawable/bg_pill"
+                android:contentDescription="@string/cd_forward"
+                android:gravity="center"
+                android:paddingHorizontal="10dp"
+                android:text="@string/player_fwd_10"
+                android:textColor="@android:color/white"
+                android:textSize="12sp" />
+
+            <ImageButton
+                android:id="@+id/btnAudio"
+                android:layout_width="44dp"
+                android:layout_height="44dp"
+                android:layout_marginStart="4dp"
+                android:background="?attr/selectableItemBackgroundBorderless"
+                android:contentDescription="@string/cd_audio"
+                android:src="@drawable/ic_music"
+                android:tint="@android:color/white" />
+
             <ImageButton
                 android:id="@+id/btnSubs"
-                android:layout_width="46dp"
-                android:layout_height="46dp"
+                android:layout_width="44dp"
+                android:layout_height="44dp"
                 android:background="?attr/selectableItemBackgroundBorderless"
                 android:contentDescription="@string/cd_subtitles"
                 android:src="@drawable/ic_subtitles"
                 android:tint="@android:color/white" />
-
-            <TextView
-                android:id="@+id/ttsChip"
-                android:layout_width="wrap_content"
-                android:layout_height="34dp"
-                android:layout_marginStart="10dp"
-                android:background="@drawable/bg_pill"
-                android:gravity="center"
-                android:paddingHorizontal="14dp"
-                android:text="@string/player_tts_off"
-                android:textColor="@android:color/white"
-                android:textSize="12sp" />
 
             <Space
                 android:layout_width="0dp"
@@ -157,9 +203,15 @@
                 android:layout_weight="1" />
 
             <TextView
-                android:id="@+id/volValueSpacer"
-                android:layout_width="0dp"
-                android:layout_height="0dp" />
+                android:id="@+id/ttsChip"
+                android:layout_width="wrap_content"
+                android:layout_height="34dp"
+                android:background="@drawable/bg_pill"
+                android:gravity="center"
+                android:paddingHorizontal="14dp"
+                android:text="@string/player_tts_off"
+                android:textColor="@android:color/white"
+                android:textSize="12sp" />
         </LinearLayout>
 
         <LinearLayout

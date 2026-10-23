@@ -1,17 +1,13 @@
 package com.lightplayer.player
 
-import android.content.pm.PackageManager
 import android.graphics.Matrix
-import android.media.AudioAttributes
-import android.media.MediaPlayer
 import android.net.Uri
 import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
-import android.os.SystemClock
 import android.provider.OpenableColumns
-import android.view.Surface
-import android.view.TextureView
+import android.view.GestureDetector
+import android.view.MotionEvent
 import android.view.View
 import android.view.ViewGroup
 import android.view.WindowManager
@@ -19,9 +15,26 @@ import android.widget.SeekBar
 import android.widget.Toast
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.app.AppCompatActivity
+import androidx.core.view.ViewCompat
 import androidx.core.view.WindowCompat
 import androidx.core.view.WindowInsetsCompat
 import androidx.core.view.WindowInsetsControllerCompat
+import androidx.media3.common.AudioAttributes
+import androidx.media3.common.C
+import androidx.media3.common.Format
+import androidx.media3.common.MediaItem
+import androidx.media3.common.PlaybackException
+import androidx.media3.common.Player
+import androidx.media3.common.TrackSelectionOverride
+import androidx.media3.common.Tracks
+import androidx.media3.common.VideoSize
+import androidx.media3.exoplayer.DefaultRenderersFactory
+import androidx.media3.common.MimeTypes
+import androidx.media3.datasource.DataSource
+import androidx.media3.exoplayer.ExoPlayer
+import androidx.media3.exoplayer.source.ProgressiveMediaSource
+import androidx.media3.extractor.DefaultExtractorsFactory
+import com.lightplayer.util.TsCleaner
 import com.google.android.material.dialog.MaterialAlertDialogBuilder
 import com.lightplayer.R
 import com.lightplayer.databinding.ActivityPlayerBinding
@@ -32,7 +45,7 @@ import com.lightplayer.subtitle.SubtitleTrack
 import com.lightplayer.tts.TtsGenerator
 import com.lightplayer.tts.TtsIndex
 import com.lightplayer.util.Formats
-import kotlin.math.abs
+import java.util.Locale
 
 class PlayerActivity : AppCompatActivity() {
 
@@ -40,7 +53,12 @@ class PlayerActivity : AppCompatActivity() {
         const val EXTRA_TITLE = "extra_title"
         const val EXTRA_DURATION = "extra_duration"
         private const val MAX_SUBTITLE_BYTES = 8L * 1024 * 1024
+        private const val SEEK_STEP_MS = 10_000L
     }
+
+    private class ExtraAudio(val uri: Uri, val name: String)
+
+    private class EmbeddedAudio(val group: Tracks.Group, val trackIndex: Int, val label: String)
 
     private lateinit var b: ActivityPlayerBinding
 
@@ -48,18 +66,21 @@ class PlayerActivity : AppCompatActivity() {
     private var videoTitle = ""
     private var declaredDuration = 0
 
-    private val mediaPlayer = MediaPlayer()
-    private var prepared = false
-    private var surface: Surface? = null
-    private var videoW = 0
-    private var videoH = 0
+    private lateinit var exo: ExoPlayer
+    private var released = false
+    private var ready = false
+    private var videoW = 0f
+    private var videoH = 0f
     private var userDragging = false
     private var resumeAfterWindow = false
 
-    private var ttsPlayer: MediaPlayer? = null
-    private var ttsReady = false
-    private var ttsEnabled = false
-    private var lastTtsSeekAt = 0L
+    // Generated TTS track + user-added audio tracks (both follow the video clock).
+    private lateinit var tts: SyncedAudio
+    private lateinit var extra: SyncedAudio
+    private val extraAudios = ArrayList<ExtraAudio>()
+    private var selectedExtra = -1      // -1 = the video's own audio is active
+    private var loadedExtra = -1
+    private var embeddedAudio: List<EmbeddedAudio> = emptyList()
 
     private var track: SubtitleTrack? = null
     private var lastShownCue: Cue? = null
@@ -72,19 +93,23 @@ class PlayerActivity : AppCompatActivity() {
     private val mainHandler = Handler(Looper.getMainLooper())
     private var controlsVisible = true
     private val hideControlsRunnable = Runnable { hideControls() }
+    private val hideHintRunnable = Runnable { if (!released) b.seekHint.visibility = View.GONE }
 
     private val ticker = object : Runnable {
         override fun run() {
-            if (prepared) {
-                val pos = mediaPlayer.currentPosition
+            if (released) return
+            if (ready) {
+                val pos = exo.currentPosition.toInt()
+                val dur = durationMs()
                 if (!userDragging) {
                     b.seekBar.progress = pos
                     b.timeElapsed.text = Formats.time(pos.toLong())
-                    val dur = mediaPlayer.duration
                     if (dur > 0) b.timeRemaining.text = "-" + Formats.time((dur - pos).toLong())
                 }
                 updateSubtitle(pos)
-                syncTts(pos)
+                val playing = exo.isPlaying
+                tts.sync(pos.toLong(), playing)
+                extra.sync(pos.toLong(), playing)
             }
             mainHandler.postDelayed(this, 250)
         }
@@ -93,6 +118,11 @@ class PlayerActivity : AppCompatActivity() {
     private val subtitlePicker =
         registerForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
             if (uri != null) onSubtitlePicked(uri)
+        }
+
+    private val audioPicker =
+        registerForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
+            if (uri != null) onAudioPicked(uri)
         }
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -108,110 +138,143 @@ class PlayerActivity : AppCompatActivity() {
 
         window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
         enterImmersive()
+        applyCutoutInsets()
 
         b.videoTitle.text = videoTitle
         b.buffering.visibility = View.GONE
         b.ttsChip.alpha = 0.4f
 
         generator = TtsGenerator(this)
+        tts = SyncedAudio(this, speech = true)
+        extra = SyncedAudio(this, speech = false)
+        tts.volume = b.ttsVol.progress / 100f
+        extra.volume = b.videoVol.progress / 100f
 
-        setupMediaPlayer()
+        setupPlayer()
         setupControls()
-        setupSurface()
-
-        b.videoSurface.setOnClickListener {
-            if (controlsVisible) hideControls() else showControls()
-        }
+        setupGestures()
 
         showControls()
         mainHandler.post(ticker)
     }
 
-    // ---------- media player ----------
+    // ---------- player ----------
 
-    private fun setupMediaPlayer() {
-        mediaPlayer.setAudioAttributes(
+    private fun setupPlayer() {
+        val factory = DefaultRenderersFactory(this)
+            .setExtensionRendererMode(DefaultRenderersFactory.EXTENSION_RENDERER_MODE_OFF)
+            .setEnableDecoderFallback(true)
+
+        exo = ExoPlayer.Builder(this, factory).build()
+        exo.setAudioAttributes(
             AudioAttributes.Builder()
-                .setContentType(AudioAttributes.CONTENT_TYPE_MOVIE)
-                .setUsage(AudioAttributes.USAGE_MEDIA)
-                .build()
+                .setUsage(C.USAGE_MEDIA)
+                .setContentType(C.AUDIO_CONTENT_TYPE_MOVIE)
+                .build(),
+            /* handleAudioFocus = */ true
         )
-        mediaPlayer.setVolume(b.videoVol.progress / 100f, b.videoVol.progress / 100f)
+        exo.setHandleAudioBecomingNoisy(true)
+        exo.setVideoTextureView(b.videoSurface)
+        applyVolumes()
 
-        try {
-            mediaPlayer.setDataSource(this, videoUri!!)
-        } catch (t: Throwable) {
-            Toast.makeText(this, R.string.player_error_play, Toast.LENGTH_SHORT).show()
-            finish()
-            return
-        }
+        exo.addListener(object : Player.Listener {
+            override fun onPlaybackStateChanged(state: Int) {
+                if (released) return
+                b.buffering.visibility =
+                    if (state == Player.STATE_BUFFERING) View.VISIBLE else View.GONE
+                if (state == Player.STATE_READY && !ready) {
+                    ready = true
+                    val dur = durationMs()
+                    if (dur > 0) {
+                        b.seekBar.max = dur
+                        if (declaredDuration <= 0) declaredDuration = dur
+                    }
+                    scheduleHideControls()
+                }
+                if (state == Player.STATE_ENDED) showControls()
+                updatePlayIcon()
+            }
 
-        mediaPlayer.setOnPreparedListener { mp ->
-            prepared = true
-            b.buffering.visibility = View.GONE
-            val dur = mp.duration
-            if (dur > 0) b.seekBar.max = dur
-            mp.start()
-            b.btnPlay.setImageResource(R.drawable.ic_pause)
-            scheduleHideControls()
-        }
-        mediaPlayer.setOnVideoSizeChangedListener { _, w, h ->
-            if (w > 0 && h > 0) {
-                videoW = w
-                videoH = h
-                updateVideoTransform()
+            override fun onPlayWhenReadyChanged(playWhenReady: Boolean, reason: Int) {
+                if (released) return
+                updatePlayIcon()
             }
-        }
-        mediaPlayer.setOnInfoListener { _, what, _ ->
-            when (what) {
-                MediaPlayer.MEDIA_INFO_BUFFERING_START -> b.buffering.visibility = View.VISIBLE
-                MediaPlayer.MEDIA_INFO_BUFFERING_END -> b.buffering.visibility = View.GONE
+
+            override fun onVideoSizeChanged(size: VideoSize) {
+                if (released) return
+                if (size.width > 0 && size.height > 0) {
+                    var w = size.width * size.pixelWidthHeightRatio
+                    var h = size.height.toFloat()
+                    if (size.unappliedRotationDegrees == 90 || size.unappliedRotationDegrees == 270) {
+                        val t = w; w = h; h = t
+                    }
+                    videoW = w
+                    videoH = h
+                    updateVideoTransform()
+                }
             }
-            true
-        }
-        mediaPlayer.setOnCompletionListener {
-            b.btnPlay.setImageResource(R.drawable.ic_play)
-            showControls()
-        }
-        mediaPlayer.setOnErrorListener { _, _, _ ->
-            b.buffering.visibility = View.GONE
-            Toast.makeText(this, R.string.player_error_play, Toast.LENGTH_SHORT).show()
-            finish()
-            true
-        }
+
+            override fun onTracksChanged(tracks: Tracks) {
+                if (released) return
+                embeddedAudio = collectAudioTracks(tracks)
+            }
+
+            override fun onPlayerError(error: PlaybackException) {
+                if (released) return
+                b.buffering.visibility = View.GONE
+                Toast.makeText(
+                    this@PlayerActivity,
+                    getString(R.string.player_error_play_fmt, error.errorCodeName),
+                    Toast.LENGTH_LONG
+                ).show()
+                finish()
+            }
+        })
+
+        b.videoSurface.addOnLayoutChangeListener { _, _, _, _, _, _, _, _, _ -> updateVideoTransform() }
+
         b.buffering.visibility = View.VISIBLE
-        mediaPlayer.prepareAsync()
+        startPlayback()
     }
 
-    private fun setupSurface() {
-        val listener = object : TextureView.SurfaceTextureListener {
-            override fun onSurfaceTextureAvailable(st: android.graphics.SurfaceTexture, w: Int, h: Int) {
-                attachSurface(st)
+    /**
+     * Some downloaded videos are MPEG-TS streams hidden behind fake PNG headers. Check for that
+     * off the main thread and, if so, play through a data source that skips the junk.
+     */
+    private fun startPlayback() {
+        val uri = videoUri ?: return
+        val appCtx = applicationContext
+        Thread {
+            val layout = try { TsCleaner.analyze(appCtx, uri) } catch (_: Throwable) { null }
+            mainHandler.post {
+                if (released) return@post
+                if (layout != null) {
+                    val factory = DataSource.Factory { TsCleanDataSource(appCtx, layout) }
+                    val item = MediaItem.Builder().setUri(uri).setMimeType(MimeTypes.VIDEO_MP2T).build()
+                    val source = ProgressiveMediaSource.Factory(factory, DefaultExtractorsFactory())
+                        .createMediaSource(item)
+                    exo.setMediaSource(source)
+                } else {
+                    exo.setMediaItem(MediaItem.fromUri(uri))
+                }
+                exo.playWhenReady = true
+                exo.prepare()
             }
-            override fun onSurfaceTextureSizeChanged(st: android.graphics.SurfaceTexture, w: Int, h: Int) {
-                updateVideoTransform()
-            }
-            override fun onSurfaceTextureDestroyed(st: android.graphics.SurfaceTexture): Boolean {
-                mediaPlayer.setSurface(null)
-                surface?.release()
-                surface = null
-                return true
-            }
-            override fun onSurfaceTextureUpdated(st: android.graphics.SurfaceTexture) {}
-        }
-        b.videoSurface.surfaceTextureListener = listener
-        b.videoSurface.surfaceTexture?.let { attachSurface(it) }
+        }.start()
     }
 
-    private fun attachSurface(st: android.graphics.SurfaceTexture) {
-        surface?.release()
-        surface = Surface(st)
-        mediaPlayer.setSurface(surface)
-        updateVideoTransform()
+    private fun durationMs(): Int {
+        val d = exo.duration
+        return if (d != C.TIME_UNSET && d > 0) d.toInt() else declaredDuration
+    }
+
+    private fun updatePlayIcon() {
+        val showPause = exo.playWhenReady && exo.playbackState != Player.STATE_ENDED
+        b.btnPlay.setImageResource(if (showPause) R.drawable.ic_pause else R.drawable.ic_play)
     }
 
     private fun updateVideoTransform() {
-        if (videoW <= 0 || videoH <= 0) return
+        if (released || videoW <= 0f || videoH <= 0f) return
         val vw = b.videoSurface.width.toFloat()
         val vh = b.videoSurface.height.toFloat()
         if (vw <= 0f || vh <= 0f) return
@@ -228,8 +291,11 @@ class PlayerActivity : AppCompatActivity() {
         b.btnBack.setOnClickListener { finish() }
         b.btnClose.setOnClickListener { finish() }
         b.btnSubs.setOnClickListener { pickSubtitle() }
+        b.btnAudio.setOnClickListener { showAudioDialog() }
+        b.btnRewind.setOnClickListener { seekBy(-SEEK_STEP_MS) }
+        b.btnForward.setOnClickListener { seekBy(SEEK_STEP_MS) }
         b.ttsChip.setOnClickListener {
-            if (ttsReady) toggleTts() else pickSubtitle()
+            if (tts.isLoaded) toggleTts() else pickSubtitle()
         }
 
         b.seekBar.setOnSeekBarChangeListener(object : SeekBar.OnSeekBarChangeListener {
@@ -245,21 +311,36 @@ class PlayerActivity : AppCompatActivity() {
             }
             override fun onStopTrackingTouch(sb: SeekBar) {
                 userDragging = false
-                if (prepared) {
-                    mediaPlayer.seekTo(sb.progress)
-                    forceTtsTo(sb.progress.toLong())
-                }
+                if (ready) seekTo(sb.progress.toLong())
+                scheduleHideControls()
             }
         })
 
         b.videoVol.setOnSeekBarChangeListener(volumeListener { p ->
-            mediaPlayer.setVolume(p / 100f, p / 100f)
+            applyVolumes()
             b.videoVolValue.text = "$p%"
         })
         b.ttsVol.setOnSeekBarChangeListener(volumeListener { p ->
-            ttsPlayer?.setVolume(p / 100f, p / 100f)
+            tts.volume = p / 100f
             b.ttsVolValue.text = "$p%"
         })
+    }
+
+    private fun setupGestures() {
+        val detector = GestureDetector(this, object : GestureDetector.SimpleOnGestureListener() {
+            override fun onDown(e: MotionEvent) = true
+
+            override fun onSingleTapConfirmed(e: MotionEvent): Boolean {
+                if (controlsVisible) hideControls() else showControls()
+                return true
+            }
+
+            override fun onDoubleTap(e: MotionEvent): Boolean {
+                if (e.x < b.videoSurface.width / 2f) seekBy(-SEEK_STEP_MS) else seekBy(SEEK_STEP_MS)
+                return true
+            }
+        })
+        b.videoSurface.setOnTouchListener { _, ev -> detector.onTouchEvent(ev) }
     }
 
     private fun volumeListener(onChange: (Int) -> Unit) = object : SeekBar.OnSeekBarChangeListener {
@@ -267,41 +348,75 @@ class PlayerActivity : AppCompatActivity() {
             if (fromUser) onChange(progress)
         }
         override fun onStartTrackingTouch(sb: SeekBar) { showControls() }
-        override fun onStopTrackingTouch(sb: SeekBar) {}
+        override fun onStopTrackingTouch(sb: SeekBar) { scheduleHideControls() }
+    }
+
+    /** The volume slider controls whichever audio is currently the "main" one. */
+    private fun applyVolumes() {
+        val v = b.videoVol.progress / 100f
+        exo.volume = if (selectedExtra >= 0) 0f else v
+        extra.volume = v
     }
 
     private fun togglePlay() {
-        if (!prepared) return
-        if (mediaPlayer.isPlaying) {
-            mediaPlayer.pause()
-            ttsPlayer?.pause()
-            b.btnPlay.setImageResource(R.drawable.ic_play)
+        if (!ready && exo.playbackState == Player.STATE_IDLE) return
+        if (exo.playbackState == Player.STATE_ENDED) {
+            seekTo(0L)
+            exo.playWhenReady = true
+            scheduleHideControls()
+            return
+        }
+        if (exo.playWhenReady) {
+            exo.playWhenReady = false
+            tts.pause()
+            extra.pause()
             showControls()
         } else {
-            mediaPlayer.start()
-            b.btnPlay.setImageResource(R.drawable.ic_pause)
+            exo.playWhenReady = true
             scheduleHideControls()
         }
+    }
+
+    private fun seekTo(posMs: Long) {
+        val dur = durationMs().toLong()
+        val target = if (dur > 0) posMs.coerceIn(0L, dur) else posMs.coerceAtLeast(0L)
+        exo.seekTo(target)
+        val playing = exo.playWhenReady
+        tts.forceTo(target, playing)
+        extra.forceTo(target, playing)
+    }
+
+    private fun seekBy(deltaMs: Long) {
+        if (!ready) return
+        seekTo(exo.currentPosition + deltaMs)
+        b.seekHint.text = if (deltaMs > 0) getString(R.string.player_fwd_10) else getString(R.string.player_back_10)
+        b.seekHint.visibility = View.VISIBLE
+        mainHandler.removeCallbacks(hideHintRunnable)
+        mainHandler.postDelayed(hideHintRunnable, 600)
+        if (controlsVisible) showControls()
     }
 
     private fun showControls() {
         controlsVisible = true
         b.controls.visibility = View.VISIBLE
+        b.topBar.visibility = View.VISIBLE
         updateSubtitleOffset()
-        mainHandler.removeCallbacks(hideControlsRunnable)
-        mainHandler.postDelayed(hideControlsRunnable, 4500)
+        scheduleHideControls()
     }
 
     private fun hideControls() {
         controlsVisible = false
         b.controls.visibility = View.GONE
+        b.topBar.visibility = View.GONE
         updateSubtitleOffset()
         mainHandler.removeCallbacks(hideControlsRunnable)
     }
 
     private fun scheduleHideControls() {
         mainHandler.removeCallbacks(hideControlsRunnable)
-        mainHandler.postDelayed(hideControlsRunnable, 4500)
+        if (controlsVisible && exo.playWhenReady) {
+            mainHandler.postDelayed(hideControlsRunnable, 4500)
+        }
     }
 
     private fun updateSubtitleOffset() {
@@ -314,6 +429,113 @@ class PlayerActivity : AppCompatActivity() {
         b.subtitleText.layoutParams = lp
     }
 
+    // ---------- audio tracks ----------
+
+    private fun collectAudioTracks(tracks: Tracks): List<EmbeddedAudio> {
+        val out = ArrayList<EmbeddedAudio>()
+        for (group in tracks.groups) {
+            if (group.type != C.TRACK_TYPE_AUDIO) continue
+            for (i in 0 until group.length) {
+                if (!group.isTrackSupported(i)) continue
+                out.add(EmbeddedAudio(group, i, ""))
+            }
+        }
+        return out.mapIndexed { idx, e ->
+            EmbeddedAudio(e.group, e.trackIndex, audioLabel(e.group.getTrackFormat(e.trackIndex), idx + 1))
+        }
+    }
+
+    private fun audioLabel(f: Format, number: Int): String {
+        val parts = ArrayList<String>()
+        val lang = f.language
+            ?.takeIf { it.isNotBlank() && it != "und" }
+            ?.let { Locale.forLanguageTag(it).displayLanguage }
+            ?.takeIf { it.isNotBlank() }
+        val label = f.label?.takeIf { it.isNotBlank() }
+        if (label != null) parts.add(label)
+        if (lang != null && (label == null || !label.contains(lang, ignoreCase = true))) parts.add(lang)
+        when (f.channelCount) {
+            1 -> parts.add("Mono")
+            2 -> parts.add("Stereo")
+            6 -> parts.add("5.1")
+            8 -> parts.add("7.1")
+            else -> if (f.channelCount > 0) parts.add("${f.channelCount}ch")
+        }
+        f.sampleMimeType?.substringAfter('/')?.takeIf { it.isNotBlank() }?.let { parts.add(it.uppercase()) }
+        val title = getString(R.string.player_audio_embedded_fmt, number)
+        return if (parts.isEmpty()) title else "$title · ${parts.joinToString(" · ")}"
+    }
+
+    private fun showAudioDialog() {
+        showControls()
+        val labels = ArrayList<String>()
+        embeddedAudio.forEach { labels.add(it.label) }
+        extraAudios.forEach { labels.add(getString(R.string.player_audio_external_fmt, it.name)) }
+
+        val checked: Int = if (selectedExtra >= 0) {
+            embeddedAudio.size + selectedExtra
+        } else {
+            embeddedAudio.indexOfFirst { it.group.isTrackSelected(it.trackIndex) }
+        }
+
+        val builder = MaterialAlertDialogBuilder(this)
+            .setTitle(R.string.player_audio_title)
+            .setNeutralButton(R.string.player_audio_add) { _, _ ->
+                audioPicker.launch(arrayOf("audio/*", "application/octet-stream"))
+            }
+            .setNegativeButton(R.string.action_cancel, null)
+
+        if (labels.isEmpty()) {
+            builder.setMessage(R.string.player_audio_none)
+        } else {
+            builder.setSingleChoiceItems(labels.toTypedArray(), checked) { dialog, which ->
+                if (which < embeddedAudio.size) selectEmbedded(embeddedAudio[which])
+                else selectExtra(which - embeddedAudio.size)
+                dialog.dismiss()
+            }
+        }
+        builder.show()
+    }
+
+    private fun selectEmbedded(entry: EmbeddedAudio) {
+        selectedExtra = -1
+        extra.enabled = false
+        extra.pause()
+        exo.trackSelectionParameters = exo.trackSelectionParameters.buildUpon()
+            .setTrackTypeDisabled(C.TRACK_TYPE_AUDIO, false)
+            .setOverrideForType(TrackSelectionOverride(entry.group.mediaTrackGroup, entry.trackIndex))
+            .build()
+        applyVolumes()
+    }
+
+    private fun selectExtra(index: Int) {
+        val item = extraAudios.getOrNull(index) ?: return
+        selectedExtra = index
+        val pos = exo.currentPosition
+        if (loadedExtra != index || !extra.isLoaded) {
+            loadedExtra = index
+            extra.load(item.uri, pos, exo.isPlaying) {
+                if (released) return@load
+                Toast.makeText(this, R.string.player_audio_error, Toast.LENGTH_SHORT).show()
+                selectedExtra = -1
+                loadedExtra = -1
+                extra.enabled = false
+                applyVolumes()
+            }
+        } else {
+            extra.forceTo(pos, exo.isPlaying)
+        }
+        extra.enabled = true
+        applyVolumes()
+    }
+
+    private fun onAudioPicked(uri: Uri) {
+        val name = queryDisplayName(uri) ?: "audio"
+        extraAudios.add(ExtraAudio(uri, name))
+        selectExtra(extraAudios.size - 1)
+        Toast.makeText(this, R.string.player_audio_added, Toast.LENGTH_SHORT).show()
+    }
+
     // ---------- subtitles ----------
 
     private fun pickSubtitle() {
@@ -322,7 +544,6 @@ class PlayerActivity : AppCompatActivity() {
     }
 
     private fun onSubtitlePicked(uri: Uri) {
-        val appCtx = applicationContext
         Thread {
             val result = readSubtitle(uri)
             mainHandler.post {
@@ -346,7 +567,7 @@ class PlayerActivity : AppCompatActivity() {
                 track = parsed
                 lastShownCue = null
                 b.ttsChip.alpha = 1f
-                updateSubtitle(if (prepared) mediaPlayer.currentPosition else 0)
+                updateSubtitle(if (ready) exo.currentPosition.toInt() else 0)
                 beginTts(parsed, name, uri)
             }
         }.start()
@@ -394,7 +615,7 @@ class PlayerActivity : AppCompatActivity() {
                 contentResolver.openFileDescriptor(cachedUri, "r")?.use { true } ?: false
             } catch (t: Throwable) { false }
             if (exists) {
-                loadTtsTrack(cachedUri, cached.durationMs)
+                loadTtsTrack(cachedUri)
                 Toast.makeText(this, R.string.player_tts_loaded_cache, Toast.LENGTH_SHORT).show()
                 return
             }
@@ -402,7 +623,7 @@ class PlayerActivity : AppCompatActivity() {
         }
 
         // ---- generate ----
-        val duration = if (prepared && mediaPlayer.duration > 0) mediaPlayer.duration else declaredDuration
+        val duration = if (ready && durationMs() > 0) durationMs() else declaredDuration
         showGeneratingDialog()
         generator.generate(
             parsed.cues,
@@ -425,12 +646,14 @@ class PlayerActivity : AppCompatActivity() {
 
                 override fun onDone(uri: Uri, durationMs: Long) {
                     dismissGenerating()
-                    loadTtsTrack(uri, durationMs)
+                    if (released) return
+                    loadTtsTrack(uri)
                     Toast.makeText(this@PlayerActivity, R.string.player_tts_generated, Toast.LENGTH_LONG).show()
                 }
 
                 override fun onError(message: String) {
                     dismissGenerating()
+                    if (released) return
                     Toast.makeText(
                         this@PlayerActivity,
                         getString(R.string.player_tts_error, message),
@@ -467,98 +690,39 @@ class PlayerActivity : AppCompatActivity() {
 
     // ---------- TTS playback ----------
 
-    private fun loadTtsTrack(uri: Uri, durationMs: Long) {
-        try { ttsPlayer?.release() } catch (t: Throwable) {}
-        ttsPlayer = null
-        ttsReady = false
-
-        val p = MediaPlayer()
-        try {
-            p.setDataSource(this, uri)
-        } catch (t: Throwable) {
+    private fun loadTtsTrack(uri: Uri) {
+        tts.volume = b.ttsVol.progress / 100f
+        tts.enabled = true
+        tts.load(uri, if (ready) exo.currentPosition else 0L, exo.isPlaying) {
+            if (released) return@load
             Toast.makeText(this, R.string.player_error_play, Toast.LENGTH_SHORT).show()
-            return
-        }
-        p.setAudioAttributes(
-            AudioAttributes.Builder()
-                .setContentType(AudioAttributes.CONTENT_TYPE_SPEECH)
-                .setUsage(AudioAttributes.USAGE_MEDIA)
-                .build()
-        )
-        p.setOnPreparedListener { mp ->
-            ttsReady = true
-            mp.setVolume(b.ttsVol.progress / 100f, b.ttsVol.progress / 100f)
-            val pos = if (prepared) mediaPlayer.currentPosition else 0
-            try { mp.seekTo(pos) } catch (t: Throwable) {}
-            if (prepared && mediaPlayer.isPlaying) mp.start()
+            tts.enabled = false
             updateTtsChip()
         }
-        p.setOnErrorListener { _, _, _ ->
-            ttsReady = false
-            updateTtsChip()
-            true
-        }
-        p.prepareAsync()
-        ttsPlayer = p
-        ttsEnabled = true
         updateTtsChip()
     }
 
     private fun toggleTts() {
-        ttsEnabled = !ttsEnabled
-        if (!ttsEnabled) ttsPlayer?.pause()
-        else forceTtsTo(if (prepared) mediaPlayer.currentPosition.toLong() else 0L)
+        tts.enabled = !tts.enabled
+        if (!tts.enabled) tts.pause()
+        else tts.forceTo(if (ready) exo.currentPosition else 0L, exo.isPlaying)
         updateTtsChip()
     }
 
     private fun updateTtsChip() {
-        if (ttsPlayer == null) {
+        if (!tts.isLoaded) {
             b.ttsChip.alpha = 0.4f
             b.ttsChip.setText(R.string.player_tts_off)
             return
         }
         b.ttsChip.alpha = 1f
-        if (ttsEnabled) {
+        if (tts.enabled) {
             b.ttsChip.setText(R.string.player_tts_active)
             b.ttsChip.setBackgroundResource(R.drawable.bg_pill_accent)
         } else {
             b.ttsChip.setText(R.string.player_tts_off)
             b.ttsChip.setBackgroundResource(R.drawable.bg_pill)
         }
-    }
-
-    /** Keeps the generated track locked to the video clock (seek + drift correction). */
-    private fun syncTts(pos: Int) {
-        val tp = ttsPlayer ?: return
-        if (!ttsReady) return
-
-        val videoPlaying = prepared && mediaPlayer.isPlaying
-        if (!ttsEnabled || !videoPlaying) {
-            if (tp.isPlaying) tp.pause()
-            return
-        }
-
-        val ttsDuration = try { tp.duration } catch (t: Throwable) { 0 }
-        if (ttsDuration in 1 until (pos + 150)) {
-            if (tp.isPlaying) tp.pause()   // track ended before the video; don't restart
-            return
-        }
-
-        val diff = tp.currentPosition - pos
-        val now = SystemClock.elapsedRealtime()
-        if (abs(diff) > 350 && now - lastTtsSeekAt > 700) {
-            lastTtsSeekAt = now
-            try { tp.seekTo(pos) } catch (t: Throwable) {}
-        }
-        if (!tp.isPlaying) tp.start()
-    }
-
-    private fun forceTtsTo(pos: Long) {
-        val tp = ttsPlayer ?: return
-        if (!ttsReady) return
-        lastTtsSeekAt = SystemClock.elapsedRealtime()
-        try { tp.seekTo(pos.toInt()) } catch (t: Throwable) {}
-        if (ttsEnabled && prepared && mediaPlayer.isPlaying) tp.start()
     }
 
     private fun updateSubtitle(pos: Int) {
@@ -579,11 +743,12 @@ class PlayerActivity : AppCompatActivity() {
 
     override fun onPause() {
         super.onPause()
-        resumeAfterWindow = prepared && mediaPlayer.isPlaying
+        if (released) return
+        resumeAfterWindow = exo.playWhenReady
         if (resumeAfterWindow) {
-            mediaPlayer.pause()
-            ttsPlayer?.pause()
-            b.btnPlay.setImageResource(R.drawable.ic_play)
+            exo.playWhenReady = false
+            tts.pause()
+            extra.pause()
         }
         mainHandler.removeCallbacks(ticker)
         mainHandler.removeCallbacks(hideControlsRunnable)
@@ -591,12 +756,12 @@ class PlayerActivity : AppCompatActivity() {
 
     override fun onResume() {
         super.onResume()
+        if (released) return
+        mainHandler.removeCallbacks(ticker)
         mainHandler.post(ticker)
-        if (resumeAfterWindow && prepared) {
+        if (resumeAfterWindow) {
             resumeAfterWindow = false
-            mediaPlayer.start()
-            ttsPlayer?.let { if (ttsEnabled) it.start() }
-            b.btnPlay.setImageResource(R.drawable.ic_pause)
+            exo.playWhenReady = true
             scheduleHideControls()
         }
         enterImmersive()
@@ -608,19 +773,33 @@ class PlayerActivity : AppCompatActivity() {
     }
 
     override fun onDestroy() {
-        mainHandler.removeCallbacks(ticker)
-        mainHandler.removeCallbacks(hideControlsRunnable)
+        released = true
+        mainHandler.removeCallbacksAndMessages(null)
         if (generating) generator.cancel()
         dismissGenerating()
-        try { mediaPlayer.release() } catch (t: Throwable) {}
-        try { ttsPlayer?.release() } catch (t: Throwable) {}
-        ttsPlayer = null
-        surface?.release()
-        surface = null
+        // Detach the surface first, then release. Releasing first and letting the
+        // TextureView tear itself down afterwards is what used to crash on back.
+        try { exo.clearVideoTextureView(b.videoSurface) } catch (_: Throwable) {}
+        try { exo.release() } catch (_: Throwable) {}
+        tts.release()
+        extra.release()
         super.onDestroy()
     }
 
     // ---------- misc ----------
+
+    private fun applyCutoutInsets() {
+        val topBase = intArrayOf(b.topBar.paddingLeft, b.topBar.paddingTop, b.topBar.paddingRight, b.topBar.paddingBottom)
+        val ctlBase = intArrayOf(b.controls.paddingLeft, b.controls.paddingTop, b.controls.paddingRight, b.controls.paddingBottom)
+        ViewCompat.setOnApplyWindowInsetsListener(b.root) { _, insets ->
+            val c = insets.getInsets(
+                WindowInsetsCompat.Type.displayCutout() or WindowInsetsCompat.Type.systemBars()
+            )
+            b.topBar.setPadding(topBase[0] + c.left, topBase[1] + c.top, topBase[2] + c.right, topBase[3])
+            b.controls.setPadding(ctlBase[0] + c.left, ctlBase[1], ctlBase[2] + c.right, ctlBase[3] + c.bottom)
+            insets
+        }
+    }
 
     private fun enterImmersive() {
         WindowCompat.setDecorFitsSystemWindows(window, false)
@@ -634,5 +813,5 @@ class PlayerActivity : AppCompatActivity() {
         contentResolver.query(uri, arrayOf(OpenableColumns.DISPLAY_NAME), null, null, null)?.use { c ->
             if (c.moveToFirst()) c.getString(0) else null
         }
-    } catch (t: Throwable) { null }
+    } catch (t: Throwable) { null } ?: uri.lastPathSegment
 }

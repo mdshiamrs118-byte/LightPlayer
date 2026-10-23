@@ -25,10 +25,10 @@ class MainActivity : AppCompatActivity() {
     private var permissionCallback: ((Boolean) -> Unit)? = null
 
     private val permissionLauncher =
-        registerForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
+        registerForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) { result ->
             val cb = permissionCallback
             permissionCallback = null
-            cb?.invoke(granted)
+            cb?.invoke(result.values.any { it } || hasVideoPermission(this))
         }
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -65,18 +65,32 @@ class MainActivity : AppCompatActivity() {
     fun requestVideoPermission(callback: (Boolean) -> Unit) {
         permissionCallback = callback
         permissionLauncher.launch(
-            if (Build.VERSION.SDK_INT >= 33) Manifest.permission.READ_MEDIA_VIDEO
-            else Manifest.permission.READ_EXTERNAL_STORAGE
+            when {
+                Build.VERSION.SDK_INT >= 34 -> arrayOf(
+                    Manifest.permission.READ_MEDIA_VIDEO,
+                    Manifest.permission.READ_MEDIA_VISUAL_USER_SELECTED
+                )
+                Build.VERSION.SDK_INT >= 33 -> arrayOf(Manifest.permission.READ_MEDIA_VIDEO)
+                else -> arrayOf(Manifest.permission.READ_EXTERNAL_STORAGE)
+            }
         )
     }
 
     companion object {
+        private fun granted(context: Context, permission: String) =
+            ContextCompat.checkSelfPermission(context, permission) == PackageManager.PERMISSION_GRANTED
+
+        /** Full access, or (Android 14+) access to the videos the user picked. */
         fun hasVideoPermission(context: Context): Boolean {
-            val permission =
-                if (Build.VERSION.SDK_INT >= 33) Manifest.permission.READ_MEDIA_VIDEO
-                else Manifest.permission.READ_EXTERNAL_STORAGE
-            return ContextCompat.checkSelfPermission(context, permission) ==
-                    PackageManager.PERMISSION_GRANTED
+            val full = if (Build.VERSION.SDK_INT >= 33) granted(context, Manifest.permission.READ_MEDIA_VIDEO)
+            else granted(context, Manifest.permission.READ_EXTERNAL_STORAGE)
+            return full || hasPartialVideoAccess(context)
         }
+
+        /** Android 14 "Select photos and videos" mode: only the picked items are visible. */
+        fun hasPartialVideoAccess(context: Context): Boolean =
+            Build.VERSION.SDK_INT >= 34 &&
+                !granted(context, Manifest.permission.READ_MEDIA_VIDEO) &&
+                granted(context, Manifest.permission.READ_MEDIA_VISUAL_USER_SELECTED)
     }
 }
