@@ -15,6 +15,7 @@ import android.widget.ProgressBar
 import android.widget.SeekBar
 import android.widget.TextView
 import androidx.appcompat.app.AlertDialog
+import androidx.appcompat.widget.SwitchCompat
 import androidx.core.view.WindowCompat
 import androidx.recyclerview.widget.RecyclerView
 import com.google.android.material.button.MaterialButton
@@ -242,6 +243,12 @@ object ThemeManager {
                 it.progressBackgroundTintList = ColorStateList.valueOf(p.container)
             }
             "divider" -> view.setBackgroundColor(p.stroke)
+            "switch" -> (view as? SwitchCompat)?.let {
+                val checked = intArrayOf(android.R.attr.state_checked)
+                val other = intArrayOf()
+                it.thumbTintList = ColorStateList(arrayOf(checked, other), intArrayOf(p.onAccent, p.text2))
+                it.trackTintList = ColorStateList(arrayOf(checked, other), intArrayOf(p.accent, p.container))
+            }
             "btn" -> (view as? MaterialButton)?.let {
                 it.backgroundTintList = ColorStateList.valueOf(p.accent)
                 it.setTextColor(p.onAccent)

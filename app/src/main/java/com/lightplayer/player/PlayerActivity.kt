@@ -1,6 +1,21 @@
 package com.lightplayer.player
 
 import android.graphics.Matrix
+import android.app.NotificationManager
+import android.content.BroadcastReceiver
+import android.content.Context
+import android.content.Intent
+import android.content.IntentFilter
+import android.media.AudioManager
+import android.os.Build
+import android.os.SystemClock
+import android.provider.Settings
+import android.view.ScaleGestureDetector
+import androidx.core.content.ContextCompat
+import com.lightplayer.util.PositionStore
+import com.lightplayer.util.Prefs
+import kotlin.math.abs
+import kotlin.math.roundToInt
 import android.net.Uri
 import android.os.Bundle
 import android.os.Handler
@@ -55,6 +70,19 @@ class PlayerActivity : AppCompatActivity() {
         const val EXTRA_DURATION = "extra_duration"
         private const val MAX_SUBTITLE_BYTES = 8L * 1024 * 1024
         private const val SEEK_STEP_MS = 10_000L
+
+        const val EXTRA_PLAYLIST_URIS = "extra_playlist_uris"
+        const val EXTRA_PLAYLIST_TITLES = "extra_playlist_titles"
+        const val EXTRA_PLAYLIST_DURATIONS = "extra_playlist_durations"
+        const val EXTRA_PLAYLIST_INDEX = "extra_playlist_index"
+    }
+
+    private enum class Aspect(val labelRes: Int) {
+        FIT(R.string.aspect_fit),
+        FILL(R.string.aspect_fill),
+        STRETCH(R.string.aspect_stretch),
+        R16_9(R.string.aspect_169),
+        R4_3(R.string.aspect_43)
     }
 
     private class ExtraAudio(val uri: Uri, val name: String)
@@ -74,6 +102,36 @@ class PlayerActivity : AppCompatActivity() {
     private var videoH = 0f
     private var userDragging = false
     private var resumeAfterWindow = false
+
+    // The other videos in the folder (empty = just this one).
+    private var playlistUris: List<Uri> = emptyList()
+    private var playlistTitles: List<String> = emptyList()
+    private var playlistDurations: IntArray = IntArray(0)
+    private var playlistIndex = 0
+    private var loadToken = 0
+    private var lastSaveAt = 0L
+
+    private var speed = 1f
+    private val speeds = floatArrayOf(0.5f, 0.75f, 1f, 1.25f, 1.5f, 1.75f, 2f)
+    private var aspect = Aspect.FIT
+    private var inBackground = false
+    private lateinit var audioManager: AudioManager
+
+    // Swipe gestures: left side = brightness, right side = volume.
+    private var swipeMode = 0
+    private var swipeBrightness = 0.5f
+    private var swipeVolume = 0f
+    private val hideHudRunnable = Runnable { if (!released) b.gestureHud.visibility = View.GONE }
+
+    private val controlReceiver = object : BroadcastReceiver() {
+        override fun onReceive(context: Context, intent: Intent) {
+            if (released) return
+            when (intent.action) {
+                PlaybackService.ACTION_TOGGLE -> { togglePlay(); updateNotification() }
+                PlaybackService.ACTION_CLOSE -> finish()
+            }
+        }
+    }
 
     // Generated TTS track + user-added audio tracks (both follow the video clock).
     private lateinit var tts: SyncedAudio
@@ -111,6 +169,11 @@ class PlayerActivity : AppCompatActivity() {
                 val playing = exo.isPlaying
                 tts.sync(pos.toLong(), playing)
                 extra.sync(pos.toLong(), playing)
+                val now = SystemClock.elapsedRealtime()
+                if (playing && now - lastSaveAt > 5_000L) {
+                    lastSaveAt = now
+                    savePosition()
+                }
             }
             mainHandler.postDelayed(this, 250)
         }
@@ -136,6 +199,8 @@ class PlayerActivity : AppCompatActivity() {
         videoTitle = intent.getStringExtra(EXTRA_TITLE)
             ?: queryDisplayName(videoUri!!) ?: "Video"
         declaredDuration = intent.getLongExtra(EXTRA_DURATION, 0L).toInt()
+        speed = Prefs.playbackSpeed(this)
+        audioManager = getSystemService(Context.AUDIO_SERVICE) as AudioManager
 
         window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
         enterImmersive()
@@ -151,7 +216,11 @@ class PlayerActivity : AppCompatActivity() {
         extra = SyncedAudio(this, speech = false)
         tts.volume = b.ttsVol.progress / 100f
         extra.volume = b.videoVol.progress / 100f
+        tts.speed = speed
+        extra.speed = speed
 
+        readPlaylist()
+        registerControlReceiver()
         setupPlayer()
         setupControls()
         setupGestures()
@@ -191,7 +260,9 @@ class PlayerActivity : AppCompatActivity() {
             /* handleAudioFocus = */ true
         )
         exo.setHandleAudioBecomingNoisy(true)
+        exo.setWakeMode(C.WAKE_MODE_LOCAL)
         exo.setVideoTextureView(b.videoSurface)
+        exo.setPlaybackSpeed(speed)
         applyVolumes()
 
         exo.addListener(object : Player.Listener {
@@ -208,13 +279,14 @@ class PlayerActivity : AppCompatActivity() {
                     }
                     scheduleHideControls()
                 }
-                if (state == Player.STATE_ENDED) showControls()
+                if (state == Player.STATE_ENDED) onVideoEnded()
                 updatePlayIcon()
             }
 
             override fun onPlayWhenReadyChanged(playWhenReady: Boolean, reason: Int) {
                 if (released) return
                 updatePlayIcon()
+                updateNotification()
             }
 
             override fun onVideoSizeChanged(size: VideoSize) {
@@ -261,18 +333,23 @@ class PlayerActivity : AppCompatActivity() {
     private fun startPlayback() {
         val uri = videoUri ?: return
         val appCtx = applicationContext
+        val token = ++loadToken
+        val startMs = savedStart(uri)
+        if (startMs > 0L) {
+            Toast.makeText(this, getString(R.string.player_resumed_fmt, Formats.time(startMs)), Toast.LENGTH_SHORT).show()
+        }
         Thread {
             val layout = try { TsCleaner.analyze(appCtx, uri) } catch (_: Throwable) { null }
             mainHandler.post {
-                if (released) return@post
+                if (released || token != loadToken) return@post
                 if (layout != null) {
                     val factory = DataSource.Factory { TsCleanDataSource(appCtx, layout) }
                     val item = MediaItem.Builder().setUri(uri).setMimeType(MimeTypes.VIDEO_MP2T).build()
                     val source = ProgressiveMediaSource.Factory(factory, DefaultExtractorsFactory())
                         .createMediaSource(item)
-                    exo.setMediaSource(source)
+                    exo.setMediaSource(source, startMs)
                 } else {
-                    exo.setMediaItem(MediaItem.fromUri(uri))
+                    exo.setMediaItem(MediaItem.fromUri(uri), startMs)
                 }
                 exo.playWhenReady = true
                 exo.prepare()
@@ -295,10 +372,215 @@ class PlayerActivity : AppCompatActivity() {
         val vw = b.videoSurface.width.toFloat()
         val vh = b.videoSurface.height.toFloat()
         if (vw <= 0f || vh <= 0f) return
-        val scale = minOf(vw / videoW, vh / videoH)
         val matrix = Matrix()
-        matrix.setScale(videoW * scale / vw, videoH * scale / vh, vw / 2f, vh / 2f)
+        if (aspect != Aspect.STRETCH) {
+            val w = when (aspect) {
+                Aspect.R16_9 -> videoH * 16f / 9f
+                Aspect.R4_3 -> videoH * 4f / 3f
+                else -> videoW
+            }
+            val h = videoH
+            val scale = if (aspect == Aspect.FILL) maxOf(vw / w, vh / h) else minOf(vw / w, vh / h)
+            matrix.setScale(w * scale / vw, h * scale / vh, vw / 2f, vh / 2f)
+        }
         b.videoSurface.setTransform(matrix)
+    }
+
+    // ---------- playlist and resume ----------
+
+    private fun readPlaylist() {
+        val uris = intent.getStringArrayListExtra(EXTRA_PLAYLIST_URIS)
+        val titles = intent.getStringArrayListExtra(EXTRA_PLAYLIST_TITLES)
+        val durations = intent.getLongArrayExtra(EXTRA_PLAYLIST_DURATIONS)
+        val index = intent.getIntExtra(EXTRA_PLAYLIST_INDEX, 0)
+        if (uris != null && titles != null && durations != null &&
+            uris.size > 1 && uris.size == titles.size && uris.size == durations.size && index in uris.indices
+        ) {
+            playlistUris = uris.map { Uri.parse(it) }
+            playlistTitles = titles
+            playlistDurations = IntArray(durations.size) { durations[it].toInt() }
+            playlistIndex = index
+        }
+        updateNavButtons()
+    }
+
+    private fun hasPrev() = playlistIndex > 0
+    private fun hasNext() = playlistIndex + 1 < playlistUris.size
+
+    private fun updateNavButtons() {
+        val multi = playlistUris.size > 1
+        b.btnPrev.visibility = if (multi) View.VISIBLE else View.GONE
+        b.btnNext.visibility = if (multi) View.VISIBLE else View.GONE
+        b.btnPrev.alpha = if (hasPrev()) 1f else 0.35f
+        b.btnNext.alpha = if (hasNext()) 1f else 0.35f
+    }
+
+    private fun playIndex(index: Int) {
+        if (index !in playlistUris.indices) return
+        savePosition()
+        playlistIndex = index
+        openVideo(playlistUris[index], playlistTitles[index], playlistDurations[index])
+    }
+
+    /** Switches to another video without leaving the player. */
+    private fun openVideo(uri: Uri, title: String, duration: Int) {
+        exo.playWhenReady = false
+        videoUri = uri
+        videoTitle = title
+        declaredDuration = duration
+        ready = false
+        videoW = 0f
+        videoH = 0f
+        // Subtitles, speech and added audio belonged to the previous video.
+        track = null
+        lastShownCue = null
+        b.subtitleText.visibility = View.INVISIBLE
+        tts.release()
+        tts.enabled = false
+        extra.release()
+        extra.enabled = false
+        extraAudios.clear()
+        selectedExtra = -1
+        loadedExtra = -1
+        embeddedAudio = emptyList()
+        exo.trackSelectionParameters = exo.trackSelectionParameters.buildUpon()
+            .clearOverridesOfType(C.TRACK_TYPE_AUDIO)
+            .build()
+        applyVolumes()
+        updateTtsChip()
+
+        b.videoTitle.text = title
+        b.seekBar.max = 100
+        b.seekBar.progress = 0
+        b.timeElapsed.text = Formats.time(0L)
+        b.timeRemaining.text = "-" + Formats.time(0L)
+        b.buffering.visibility = View.VISIBLE
+        updateNavButtons()
+        updateNotification()
+        startPlayback()
+    }
+
+    private fun onVideoEnded() {
+        videoUri?.let { PositionStore.clear(this, it.toString()) }
+        if (Prefs.autoNext(this) && hasNext()) {
+            Toast.makeText(
+                this,
+                getString(R.string.player_next_fmt, playlistTitles[playlistIndex + 1]),
+                Toast.LENGTH_SHORT
+            ).show()
+            playIndex(playlistIndex + 1)
+        } else {
+            if (inBackground) exo.playWhenReady = false
+            showControls()
+        }
+    }
+
+    private fun savedStart(uri: Uri): Long {
+        if (!Prefs.resumeEnabled(this)) return 0L
+        val entry = PositionStore.get(this, uri.toString()) ?: return 0L
+        return (entry.pos - 2_000L).coerceAtLeast(0L)
+    }
+
+    private fun savePosition() {
+        if (released || !ready || !Prefs.resumeEnabled(this)) return
+        val uri = videoUri ?: return
+        PositionStore.save(this, uri.toString(), exo.currentPosition, durationMs().toLong())
+    }
+
+    // ---------- speed and aspect ----------
+
+    private fun speedLabel(s: Float): String =
+        (if (s % 1f == 0f) s.toInt().toString() else s.toString()) + "x"
+
+    private fun showSpeedDialog() {
+        showControls()
+        val labels = speeds.map { speedLabel(it) }.toTypedArray()
+        val checked = speeds.indexOfFirst { abs(it - speed) < 0.01f }
+        ThemeManager.themed(
+            ThemeManager.dialogBuilder(this, forceDark = true)
+                .setTitle(R.string.player_speed_title)
+                .setSingleChoiceItems(labels, checked) { dialog, which ->
+                    setSpeed(speeds[which])
+                    dialog.dismiss()
+                }
+                .setNegativeButton(R.string.action_cancel, null)
+                .create(),
+            forceDark = true
+        ).show()
+    }
+
+    private fun setSpeed(value: Float) {
+        speed = value
+        exo.setPlaybackSpeed(value)
+        tts.speed = value        // keep the spoken track and added audio in step with the video
+        extra.speed = value
+        Prefs.setPlaybackSpeed(this, value)
+        b.btnSpeed.text = speedLabel(value)
+        showHud(speedLabel(value))
+    }
+
+    private fun setAspect(mode: Aspect) {
+        aspect = mode
+        b.btnAspect.setText(mode.labelRes)
+        updateVideoTransform()
+        showHud(getString(mode.labelRes))
+    }
+
+    private fun cycleAspect() {
+        val all = Aspect.values()
+        setAspect(all[(aspect.ordinal + 1) % all.size])
+    }
+
+    // ---------- background audio ----------
+
+    private fun registerControlReceiver() {
+        val filter = IntentFilter().apply {
+            addAction(PlaybackService.ACTION_TOGGLE)
+            addAction(PlaybackService.ACTION_CLOSE)
+        }
+        if (Build.VERSION.SDK_INT >= 33) {
+            registerReceiver(controlReceiver, filter, Context.RECEIVER_NOT_EXPORTED)
+        } else {
+            registerReceiver(controlReceiver, filter)
+        }
+    }
+
+    private fun enterBackgroundMode() {
+        inBackground = true
+        // No point decoding video nobody can see.
+        exo.trackSelectionParameters = exo.trackSelectionParameters.buildUpon()
+            .setTrackTypeDisabled(C.TRACK_TYPE_VIDEO, true)
+            .build()
+        mainHandler.removeCallbacks(hideControlsRunnable)
+        try {
+            ContextCompat.startForegroundService(
+                this,
+                Intent(this, PlaybackService::class.java)
+                    .putExtra(PlaybackService.EXTRA_TITLE, videoTitle)
+                    .putExtra(PlaybackService.EXTRA_PLAYING, true)
+            )
+        } catch (_: Throwable) {
+        }
+    }
+
+    private fun leaveBackgroundMode() {
+        inBackground = false
+        exo.trackSelectionParameters = exo.trackSelectionParameters.buildUpon()
+            .setTrackTypeDisabled(C.TRACK_TYPE_VIDEO, false)
+            .build()
+        PlaybackService.stop(this)
+    }
+
+    private fun updateNotification() {
+        if (!inBackground || released) return
+        try {
+            val playing = exo.playWhenReady && exo.playbackState != Player.STATE_ENDED
+            getSystemService(NotificationManager::class.java).notify(
+                PlaybackService.NOTIFICATION_ID,
+                PlaybackService.buildNotification(this, videoTitle, playing)
+            )
+        } catch (_: Throwable) {
+        }
     }
 
     // ---------- controls ----------
@@ -311,6 +593,12 @@ class PlayerActivity : AppCompatActivity() {
         b.btnAudio.setOnClickListener { showAudioDialog() }
         b.btnRewind.setOnClickListener { seekBy(-SEEK_STEP_MS) }
         b.btnForward.setOnClickListener { seekBy(SEEK_STEP_MS) }
+        b.btnPrev.setOnClickListener { if (hasPrev()) playIndex(playlistIndex - 1) }
+        b.btnNext.setOnClickListener { if (hasNext()) playIndex(playlistIndex + 1) }
+        b.btnSpeed.text = speedLabel(speed)
+        b.btnSpeed.setOnClickListener { showSpeedDialog() }
+        b.btnAspect.setText(aspect.labelRes)
+        b.btnAspect.setOnClickListener { cycleAspect() }
         b.ttsChip.setOnClickListener {
             if (tts.isLoaded) toggleTts() else pickSubtitle()
         }
@@ -344,8 +632,28 @@ class PlayerActivity : AppCompatActivity() {
     }
 
     private fun setupGestures() {
+        val scaleDetector = ScaleGestureDetector(this, object : ScaleGestureDetector.SimpleOnScaleGestureListener() {
+            private var accumulated = 1f
+            override fun onScaleBegin(detector: ScaleGestureDetector): Boolean {
+                accumulated = 1f
+                return true
+            }
+            override fun onScale(detector: ScaleGestureDetector): Boolean {
+                accumulated *= detector.scaleFactor
+                return true
+            }
+            override fun onScaleEnd(detector: ScaleGestureDetector) {
+                // Pinch out = fill the screen, pinch in = fit the whole picture.
+                if (accumulated > 1.12f) setAspect(Aspect.FILL)
+                else if (accumulated < 0.88f) setAspect(Aspect.FIT)
+            }
+        })
+
         val detector = GestureDetector(this, object : GestureDetector.SimpleOnGestureListener() {
-            override fun onDown(e: MotionEvent) = true
+            override fun onDown(e: MotionEvent): Boolean {
+                beginSwipe()
+                return true
+            }
 
             override fun onSingleTapConfirmed(e: MotionEvent): Boolean {
                 if (controlsVisible) hideControls() else showControls()
@@ -356,8 +664,63 @@ class PlayerActivity : AppCompatActivity() {
                 if (e.x < b.videoSurface.width / 2f) seekBy(-SEEK_STEP_MS) else seekBy(SEEK_STEP_MS)
                 return true
             }
+
+            override fun onScroll(e1: MotionEvent?, e2: MotionEvent, distanceX: Float, distanceY: Float): Boolean {
+                if (e1 == null || scaleDetector.isInProgress || e2.pointerCount > 1) return false
+                if (swipeMode == 0) {
+                    // Only mostly-vertical swipes count.
+                    if (abs(e2.y - e1.y) <= abs(e2.x - e1.x)) return false
+                    swipeMode = if (e1.x < b.videoSurface.width / 2f) 1 else 2
+                }
+                // distanceY is positive when the finger moves up.
+                val delta = distanceY / (b.videoSurface.height * 0.75f)
+                if (swipeMode == 1) adjustBrightness(delta) else adjustVolume(delta)
+                return true
+            }
         })
-        b.videoSurface.setOnTouchListener { _, ev -> detector.onTouchEvent(ev) }
+
+        b.videoSurface.setOnTouchListener { _, ev ->
+            scaleDetector.onTouchEvent(ev)
+            detector.onTouchEvent(ev)
+            if (ev.actionMasked == MotionEvent.ACTION_UP || ev.actionMasked == MotionEvent.ACTION_CANCEL) {
+                swipeMode = 0
+            }
+            true
+        }
+    }
+
+    private fun beginSwipe() {
+        swipeMode = 0
+        val current = window.attributes.screenBrightness
+        swipeBrightness = if (current >= 0f) current else try {
+            Settings.System.getInt(contentResolver, Settings.System.SCREEN_BRIGHTNESS) / 255f
+        } catch (_: Throwable) {
+            0.5f
+        }
+        val max = audioManager.getStreamMaxVolume(AudioManager.STREAM_MUSIC).coerceAtLeast(1)
+        swipeVolume = audioManager.getStreamVolume(AudioManager.STREAM_MUSIC).toFloat() / max
+    }
+
+    private fun adjustBrightness(delta: Float) {
+        swipeBrightness = (swipeBrightness + delta).coerceIn(0.02f, 1f)
+        val lp = window.attributes
+        lp.screenBrightness = swipeBrightness
+        window.attributes = lp
+        showHud(getString(R.string.player_brightness_fmt, (swipeBrightness * 100).roundToInt()))
+    }
+
+    private fun adjustVolume(delta: Float) {
+        swipeVolume = (swipeVolume + delta).coerceIn(0f, 1f)
+        val max = audioManager.getStreamMaxVolume(AudioManager.STREAM_MUSIC)
+        audioManager.setStreamVolume(AudioManager.STREAM_MUSIC, (swipeVolume * max).roundToInt(), 0)
+        showHud(getString(R.string.player_volume_fmt, (swipeVolume * 100).roundToInt()))
+    }
+
+    private fun showHud(text: String) {
+        b.gestureHud.text = text
+        b.gestureHud.visibility = View.VISIBLE
+        mainHandler.removeCallbacks(hideHudRunnable)
+        mainHandler.postDelayed(hideHudRunnable, 800)
     }
 
     private fun volumeListener(onChange: (Int) -> Unit) = object : SeekBar.OnSeekBarChangeListener {
@@ -791,6 +1154,13 @@ class PlayerActivity : AppCompatActivity() {
     override fun onPause() {
         super.onPause()
         if (released) return
+        savePosition()
+        val keepPlaying = Prefs.backgroundAudio(this) && exo.playWhenReady &&
+            !isFinishing && !isChangingConfigurations
+        if (keepPlaying) {
+            enterBackgroundMode()
+            return
+        }
         resumeAfterWindow = exo.playWhenReady
         if (resumeAfterWindow) {
             exo.playWhenReady = false
@@ -804,6 +1174,7 @@ class PlayerActivity : AppCompatActivity() {
     override fun onResume() {
         super.onResume()
         if (released) return
+        if (inBackground) leaveBackgroundMode()
         mainHandler.removeCallbacks(ticker)
         mainHandler.post(ticker)
         if (resumeAfterWindow) {
@@ -820,7 +1191,10 @@ class PlayerActivity : AppCompatActivity() {
     }
 
     override fun onDestroy() {
+        savePosition()
         released = true
+        try { unregisterReceiver(controlReceiver) } catch (_: Throwable) {}
+        PlaybackService.stop(this)
         mainHandler.removeCallbacksAndMessages(null)
         if (generating) generator.cancel()
         dismissGenerating()

@@ -8,6 +8,7 @@ import com.lightplayer.databinding.ItemFolderBinding
 import com.lightplayer.databinding.ItemVideoBinding
 import com.lightplayer.theme.ThemeManager
 import com.lightplayer.util.Formats
+import com.lightplayer.util.PositionStore
 import com.lightplayer.util.Thumbs
 
 class VideoFolderAdapter(
@@ -113,6 +114,14 @@ class VideoFolderAdapter(
             b.videoMeta.text = "${Formats.date(v.dateAdded)} • ${Formats.size(v.size)}"
             b.durationBadge.text = Formats.time(v.durationMs)
             Thumbs.load(itemView.context, v.uri, b.thumb, R.drawable.ic_video)
+            val watched = PositionStore.fraction(itemView.context, v.uri.toString(), v.durationMs)
+            if (watched > 0.01f) {
+                b.watchProgress.max = 1000
+                b.watchProgress.progress = (watched * 1000).toInt()
+                b.watchProgress.visibility = android.view.View.VISIBLE
+            } else {
+                b.watchProgress.visibility = android.view.View.GONE
+            }
             b.root.setOnClickListener { click(v) }
         }
     }

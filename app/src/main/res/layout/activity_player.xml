@@ -31,6 +31,19 @@
         android:visibility="gone" />
 
     <TextView
+        android:id="@+id/gestureHud"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_gravity="top|center_horizontal"
+        android:layout_marginTop="84dp"
+        android:background="@drawable/bg_subtitles"
+        android:paddingHorizontal="16dp"
+        android:paddingVertical="8dp"
+        android:textColor="@android:color/white"
+        android:textSize="16sp"
+        android:visibility="gone" />
+
+    <TextView
         android:id="@+id/subtitleText"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
@@ -79,6 +92,34 @@
             android:textColor="@android:color/white"
             android:textSize="16sp"
             android:textStyle="bold" />
+
+        <TextView
+            android:id="@+id/btnAspect"
+            android:layout_width="wrap_content"
+            android:layout_height="32dp"
+            android:layout_marginEnd="6dp"
+            android:background="@drawable/bg_pill"
+            android:contentDescription="@string/cd_aspect"
+            android:gravity="center"
+            android:minWidth="44dp"
+            android:paddingHorizontal="10dp"
+            android:text="@string/aspect_fit"
+            android:textColor="@android:color/white"
+            android:textSize="12sp" />
+
+        <TextView
+            android:id="@+id/btnSpeed"
+            android:layout_width="wrap_content"
+            android:layout_height="32dp"
+            android:layout_marginEnd="4dp"
+            android:background="@drawable/bg_pill"
+            android:contentDescription="@string/cd_speed"
+            android:gravity="center"
+            android:minWidth="44dp"
+            android:paddingHorizontal="10dp"
+            android:text="1x"
+            android:textColor="@android:color/white"
+            android:textSize="12sp" />
 
         <ImageButton
             android:id="@+id/btnClose"
@@ -144,6 +185,16 @@
             android:orientation="horizontal">
 
             <ImageButton
+                android:id="@+id/btnPrev"
+                android:layout_width="40dp"
+                android:layout_height="40dp"
+                android:background="?attr/selectableItemBackgroundBorderless"
+                android:contentDescription="@string/cd_prev"
+                android:src="@drawable/ic_skip_prev"
+                android:tint="@android:color/white"
+                android:visibility="gone" />
+
+            <ImageButton
                 android:id="@+id/btnPlay"
                 android:layout_width="46dp"
                 android:layout_height="46dp"
@@ -151,6 +202,16 @@
                 android:contentDescription="@string/cd_play_pause"
                 android:src="@drawable/ic_play"
                 android:tint="@android:color/white" />
+
+            <ImageButton
+                android:id="@+id/btnNext"
+                android:layout_width="40dp"
+                android:layout_height="40dp"
+                android:background="?attr/selectableItemBackgroundBorderless"
+                android:contentDescription="@string/cd_next"
+                android:src="@drawable/ic_skip_next"
+                android:tint="@android:color/white"
+                android:visibility="gone" />
 
             <TextView
                 android:id="@+id/btnRewind"
@@ -178,6 +239,11 @@
                 android:textColor="@android:color/white"
                 android:textSize="12sp" />
 
+            <Space
+                android:layout_width="0dp"
+                android:layout_height="1dp"
+                android:layout_weight="1" />
+
             <ImageButton
                 android:id="@+id/btnAudio"
                 android:layout_width="44dp"
@@ -197,22 +263,7 @@
                 android:src="@drawable/ic_subtitles"
                 android:tint="@android:color/white" />
 
-            <Space
-                android:layout_width="0dp"
-                android:layout_height="1dp"
-                android:layout_weight="1" />
-
-            <TextView
-                android:id="@+id/ttsChip"
-                android:layout_width="wrap_content"
-                android:layout_height="34dp"
-                android:background="@drawable/bg_pill"
-                android:gravity="center"
-                android:paddingHorizontal="14dp"
-                android:text="@string/player_tts_off"
-                android:textColor="@android:color/white"
-                android:textSize="12sp" />
-        </LinearLayout>
+</LinearLayout>
 
         <LinearLayout
             android:layout_width="match_parent"
@@ -272,11 +323,16 @@
                 android:tint="@android:color/white" />
 
             <TextView
-                android:layout_width="112dp"
-                android:layout_height="wrap_content"
+                android:id="@+id/ttsChip"
+                android:layout_width="wrap_content"
+                android:layout_height="30dp"
                 android:layout_marginStart="8dp"
-                android:text="@string/player_tts_volume"
-                android:textColor="#DDDDDD"
+                android:background="@drawable/bg_pill"
+                android:gravity="center"
+                android:minWidth="76dp"
+                android:paddingHorizontal="12dp"
+                android:text="@string/player_tts_off"
+                android:textColor="@android:color/white"
                 android:textSize="12sp" />
 
             <SeekBar

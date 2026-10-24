@@ -30,4 +30,17 @@ object Prefs {
     /** "pill" (floating) or "classic" (full-width bottom bar). */
     fun navStyle(context: Context): String = sp(context).getString("nav_style", "pill") ?: "pill"
     fun setNavStyle(context: Context, v: String) { sp(context).edit().putString("nav_style", v).apply() }
+
+    // ---- playback ----
+    fun resumeEnabled(context: Context): Boolean = sp(context).getBoolean("resume_position", true)
+    fun setResumeEnabled(context: Context, v: Boolean) { sp(context).edit().putBoolean("resume_position", v).apply() }
+
+    fun autoNext(context: Context): Boolean = sp(context).getBoolean("auto_next", true)
+    fun setAutoNext(context: Context, v: Boolean) { sp(context).edit().putBoolean("auto_next", v).apply() }
+
+    fun backgroundAudio(context: Context): Boolean = sp(context).getBoolean("background_audio", false)
+    fun setBackgroundAudio(context: Context, v: Boolean) { sp(context).edit().putBoolean("background_audio", v).apply() }
+
+    fun playbackSpeed(context: Context): Float = sp(context).getFloat("playback_speed", 1f)
+    fun setPlaybackSpeed(context: Context, v: Float) { sp(context).edit().putFloat("playback_speed", v).apply() }
 }

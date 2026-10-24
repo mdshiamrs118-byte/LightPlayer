@@ -13,6 +13,7 @@ import com.lightplayer.R
 import com.lightplayer.databinding.FragmentVideoBinding
 import com.lightplayer.player.PlayerActivity
 import com.lightplayer.theme.ThemeManager
+import com.lightplayer.util.NaturalOrder
 import java.util.LinkedHashSet
 
 class VideoFragment : Fragment() {
@@ -128,11 +129,27 @@ class VideoFragment : Fragment() {
     }
 
     private fun open(video: VideoItem) {
+        // Everything in the same folder, in natural name order (Episode 2 before Episode 10),
+        // so the player can go to the previous/next video.
+        val folder = currentFolders.firstOrNull { f -> f.videos.any { it.id == video.id } }
+        val siblings = (folder?.videos ?: listOf(video)).sortedWith { a, b -> NaturalOrder.compare(a.title, b.title) }
+        var index = siblings.indexOfFirst { it.id == video.id }.coerceAtLeast(0)
+        var list = siblings
+        if (list.size > MAX_PLAYLIST) {
+            val from = (index - MAX_PLAYLIST / 2).coerceIn(0, list.size - MAX_PLAYLIST)
+            list = list.subList(from, from + MAX_PLAYLIST)
+            index -= from
+        }
+
         val intent = Intent(requireContext(), PlayerActivity::class.java).apply {
             data = video.uri
             addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
             putExtra(PlayerActivity.EXTRA_TITLE, video.title)
             putExtra(PlayerActivity.EXTRA_DURATION, video.durationMs)
+            putStringArrayListExtra(PlayerActivity.EXTRA_PLAYLIST_URIS, ArrayList(list.map { it.uri.toString() }))
+            putStringArrayListExtra(PlayerActivity.EXTRA_PLAYLIST_TITLES, ArrayList(list.map { it.title }))
+            putExtra(PlayerActivity.EXTRA_PLAYLIST_DURATIONS, list.map { it.durationMs }.toLongArray())
+            putExtra(PlayerActivity.EXTRA_PLAYLIST_INDEX, index)
         }
         startActivity(intent)
     }
@@ -148,5 +165,9 @@ class VideoFragment : Fragment() {
             addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
         }
         startActivity(intent)
+    }
+
+    private companion object {
+        const val MAX_PLAYLIST = 300
     }
 }

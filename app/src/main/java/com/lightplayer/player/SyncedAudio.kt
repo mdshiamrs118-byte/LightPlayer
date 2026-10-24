@@ -29,6 +29,12 @@ class SyncedAudio(context: Context, private val speech: Boolean) {
             player?.volume = value
         }
 
+    var speed = 1f
+        set(value) {
+            field = value
+            player?.setPlaybackSpeed(value)
+        }
+
     val isLoaded: Boolean get() = player != null
     val isReady: Boolean
         get() = player?.let { it.playbackState == Player.STATE_READY || it.playbackState == Player.STATE_BUFFERING } == true
@@ -44,6 +50,7 @@ class SyncedAudio(context: Context, private val speech: Boolean) {
             /* handleAudioFocus = */ false
         )
         p.volume = volume
+        p.setPlaybackSpeed(speed)
         p.addListener(object : Player.Listener {
             override fun onPlayerError(error: PlaybackException) {
                 onError()

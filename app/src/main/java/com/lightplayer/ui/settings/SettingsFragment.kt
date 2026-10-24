@@ -2,7 +2,12 @@ package com.lightplayer.ui.settings
 
 import android.animation.ArgbEvaluator
 import android.animation.ValueAnimator
+import android.Manifest
 import android.content.Intent
+import android.content.pm.PackageManager
+import android.os.Build
+import androidx.activity.result.contract.ActivityResultContracts
+import androidx.core.content.ContextCompat
 import android.content.pm.PackageManager
 import android.os.Bundle
 import android.speech.tts.TextToSpeech
@@ -43,10 +48,15 @@ class SettingsFragment : Fragment() {
     private val colorChips = ArrayList<Chip>()
     private val navChips = ArrayList<Chip>()
 
+    // Android 13+ asks before a notification can be shown; background audio uses one.
+    private val notificationPermission =
+        registerForActivityResult(ActivityResultContracts.RequestPermission()) { }
+
     override fun onViewCreated(view: View, savedInstanceState: Bundle?) {
         val ctx = requireContext()
         ThemeManager.apply(view, ThemeManager.palette(ctx))
         setupAppearance()
+        setupPlayback()
         binding.btnGrantAccess.setOnClickListener {
             (activity as? MainActivity)?.requestVideoPermission { updateFileStatus() }
         }
@@ -149,6 +159,25 @@ class SettingsFragment : Fragment() {
             override fun onStopTrackingTouch(sb: SeekBar?) {}
         })
         refreshChips(animate = false)
+    }
+
+    private fun setupPlayback() {
+        val ctx = requireContext()
+        binding.switchResume.isChecked = Prefs.resumeEnabled(ctx)
+        binding.switchAutoNext.isChecked = Prefs.autoNext(ctx)
+        binding.switchBgAudio.isChecked = Prefs.backgroundAudio(ctx)
+
+        binding.switchResume.setOnCheckedChangeListener { _, on -> Prefs.setResumeEnabled(ctx, on) }
+        binding.switchAutoNext.setOnCheckedChangeListener { _, on -> Prefs.setAutoNext(ctx, on) }
+        binding.switchBgAudio.setOnCheckedChangeListener { _, on ->
+            Prefs.setBackgroundAudio(ctx, on)
+            if (on && Build.VERSION.SDK_INT >= 33 &&
+                ContextCompat.checkSelfPermission(ctx, Manifest.permission.POST_NOTIFICATIONS)
+                != PackageManager.PERMISSION_GRANTED
+            ) {
+                notificationPermission.launch(Manifest.permission.POST_NOTIFICATIONS)
+            }
+        }
     }
 
     private fun themeChanged(animate: Boolean) {

@@ -36,6 +36,12 @@ It has no ads, no accounts and no internet requirement. Everything stays on your
 
 ### Playback
 - Powered by **Media3 ExoPlayer**: wide format and codec support, with automatic decoder fallback
+- **Resume where you left off:** positions are remembered per video, and thumbnails show a progress bar for videos you've started
+- **Playback speed** from 0.5x to 2x; the added audio track and the spoken (TTS) track stay in sync at any speed
+- **Swipe gestures:** swipe up or down on the **left** side for brightness and on the **right** side for volume, with an on-screen indicator
+- **Pinch to zoom:** pinch out to fill the screen, pinch in to fit. The **Fit / Fill / Stretch / 16:9 / 4:3** button in the top bar cycles through all modes
+- **Previous / next video** and **auto-play next** within the same folder (sorted naturally, so Episode 2 comes before Episode 10)
+- **Background audio:** keep listening when you leave the app or turn the screen off, with a notification to pause, resume or close
 - Full-screen immersive player, with cutout/notch-safe controls
 - **Double-tap** the left or right side to seek ∓10 seconds, **single tap** to show or hide controls
 - ±10s buttons, seek bar with elapsed and remaining time, play/pause
@@ -83,6 +89,11 @@ Allow access to videos when asked. If you skip this, you can still play anything
 | Play any file on my phone | **Video** tab → **Open file** → choose a video |
 | Seek | Double-tap left or right side, use the ±10s buttons, or drag the seek bar |
 | Show or hide controls | Tap the screen once |
+| Change brightness or volume | Swipe up/down on the left (brightness) or right (volume) side of the video |
+| Zoom to fill the screen | Pinch out (pinch in to go back), or use the aspect button in the top bar |
+| Change playback speed | Tap the speed button (e.g. **1x**) in the top bar |
+| Go to the previous or next video | Use the ⏮ ⏭ buttons next to play; the next video also starts automatically |
+| Keep audio playing in the background | **Settings** → **Playback** → **Background audio** |
 | Switch audio track | Tap the **♪** button → choose a track |
 | Add my own audio track | Tap **♪** → **Add audio file…** → choose an audio file |
 | Mix or adjust volume | Use the **Audio volume** slider |
@@ -134,6 +145,7 @@ app/src/main/java/com/lightplayer/
 ├── player/
 │   ├── PlayerActivity.kt    # the video player screen
 │   ├── SyncedAudio.kt       # extra audio / TTS track kept in sync with the video
+│   ├── PlaybackService.kt   # foreground service + notification for background audio
 │   └── TsCleanDataSource.kt # plays videos hidden behind fake headers
 ├── ui/
 │   ├── video/               # library, folders, file picker
@@ -142,7 +154,8 @@ app/src/main/java/com/lightplayer/
 ├── theme/                   # theme engine (palette, modes, hue) and the floating pill nav bar
 ├── subtitle/                # SRT / VTT / ASS parsing
 ├── tts/                     # speech generation and caching
-└── util/                    # thumbnails, formatting, preferences, header cleanup
+└── util/                    # thumbnails, formatting, preferences, header cleanup,
+                             # saved positions, natural sorting
 ```
 
 ## 🩺 Troubleshooting
@@ -164,6 +177,9 @@ app/src/main/java/com/lightplayer/
 | `READ_MEDIA_VIDEO` / `READ_EXTERNAL_STORAGE` | List the videos on your device |
 | `READ_MEDIA_VISUAL_USER_SELECTED` | Support Android 14's "selected videos only" mode |
 | `READ_MEDIA_AUDIO` | Read generated audio tracks in the Music tab |
+| `FOREGROUND_SERVICE` / `FOREGROUND_SERVICE_MEDIA_PLAYBACK` | Keep playing audio in the background |
+| `POST_NOTIFICATIONS` | Show the background-playback notification (Android 13+) |
+| `WAKE_LOCK` | Keep playback running with the screen off |
 
 Light Player does not request internet access.
 

@@ -34,6 +34,16 @@
             android:paddingVertical="1dp"
             android:textColor="@android:color/white"
             android:textSize="11sp" />
+
+        <ProgressBar
+            android:id="@+id/watchProgress"
+            style="?android:attr/progressBarStyleHorizontal"
+            android:layout_width="match_parent"
+            android:layout_height="3dp"
+            android:layout_gravity="bottom"
+            android:max="1000"
+            android:tag="progress"
+            android:visibility="gone" />
     </FrameLayout>
 
     <LinearLayout
