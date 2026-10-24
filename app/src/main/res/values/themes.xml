@@ -14,6 +14,12 @@
         <item name="android:forceDarkAllowed">false</item>
     </style>
 
+    <!-- Used for dialogs when the app is in a light theme -->
+    <style name="Theme.LightPlayer.Light" parent="Theme.Material3.Light.NoActionBar">
+        <item name="colorPrimary">@color/accent</item>
+        <item name="android:forceDarkAllowed">false</item>
+    </style>
+
     <style name="Theme.LightPlayer.Player" parent="Theme.LightPlayer">
         <item name="android:windowFullscreen">true</item>
         <item name="android:windowBackground">@android:color/black</item>

@@ -1,5 +1,7 @@
 package com.lightplayer.ui.settings
 
+import android.animation.ArgbEvaluator
+import android.animation.ValueAnimator
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.os.Bundle
@@ -7,10 +9,16 @@ import android.speech.tts.TextToSpeech
 import android.view.LayoutInflater
 import android.view.View
 import android.view.ViewGroup
+import android.graphics.Typeface
+import android.graphics.drawable.GradientDrawable
+import android.widget.LinearLayout
+import android.widget.TextView
 import android.widget.SeekBar
 import android.widget.Toast
 import androidx.fragment.app.Fragment
-import com.google.android.material.dialog.MaterialAlertDialogBuilder
+import com.lightplayer.MainActivity
+import com.lightplayer.theme.Palette
+import com.lightplayer.theme.ThemeManager
 import com.lightplayer.R
 import com.lightplayer.databinding.FragmentSettingsBinding
 import com.lightplayer.tts.TtsIndex
@@ -29,8 +37,19 @@ class SettingsFragment : Fragment() {
         return binding.root
     }
 
+    private class Chip(val view: TextView, val key: String)
+
+    private val modeChips = ArrayList<Chip>()
+    private val colorChips = ArrayList<Chip>()
+
     override fun onViewCreated(view: View, savedInstanceState: Bundle?) {
         val ctx = requireContext()
+        ThemeManager.apply(view, ThemeManager.palette(ctx))
+        setupAppearance()
+        binding.btnGrantAccess.setOnClickListener {
+            (activity as? MainActivity)?.requestVideoPermission { updateFileStatus() }
+        }
+        updateFileStatus()
 
         // --- TTS engine ---
         binding.engineValue.text = engineLabel(Prefs.engine(ctx))
@@ -73,7 +92,122 @@ class SettingsFragment : Fragment() {
 
     override fun onResume() {
         super.onResume()
-        if (_binding != null) refreshStorageInfo()
+        if (_binding != null) {
+            refreshStorageInfo()
+            updateFileStatus()
+        }
+    }
+
+    // ---------- appearance ----------
+
+    private fun setupAppearance() {
+        val ctx = requireContext()
+        val modes = listOf(
+            ThemeManager.MODE_SYSTEM to R.string.mode_system,
+            ThemeManager.MODE_LIGHT to R.string.mode_light,
+            ThemeManager.MODE_DARK to R.string.mode_dark,
+            ThemeManager.MODE_BLACK to R.string.mode_black
+        )
+        modes.forEach { (key, label) ->
+            val chip = makeChip(getString(label), key) {
+                ThemeManager.setMode(ctx, key)
+                themeChanged(animate = true)
+            }
+            modeChips.add(chip)
+            binding.modeChips.addView(chip.view, chipParams())
+        }
+        ThemeManager.presets.forEach { preset ->
+            val chip = makeChip(preset.name, preset.name) {
+                ThemeManager.setPreset(ctx, preset.name)
+                binding.hueSeek.progress = preset.hue.toInt()
+                themeChanged(animate = true)
+            }
+            colorChips.add(chip)
+            binding.colorChips.addView(chip.view, chipParams())
+        }
+
+        binding.hueSeek.progress = ThemeManager.hue(ctx).toInt().coerceIn(0, 360)
+        binding.hueSeek.setOnSeekBarChangeListener(object : SeekBar.OnSeekBarChangeListener {
+            override fun onProgressChanged(sb: SeekBar?, progress: Int, fromUser: Boolean) {
+                if (fromUser) {
+                    ThemeManager.setCustomHue(ctx, progress.toFloat())
+                    themeChanged(animate = false)
+                }
+            }
+            override fun onStartTrackingTouch(sb: SeekBar?) {}
+            override fun onStopTrackingTouch(sb: SeekBar?) {}
+        })
+        refreshChips(animate = false)
+    }
+
+    private fun themeChanged(animate: Boolean) {
+        (activity as? MainActivity)?.onThemeChanged(animate)
+        refreshChips(animate = animate)
+    }
+
+    private fun chipParams() = LinearLayout.LayoutParams(
+        ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT
+    ).apply { marginEnd = dpPx(8) }
+
+    private fun dpPx(v: Int) = (v * resources.displayMetrics.density).toInt()
+
+    private fun makeChip(label: String, key: String, onClick: () -> Unit): Chip {
+        val tv = TextView(requireContext()).apply {
+            text = label
+            textSize = 14f
+            typeface = Typeface.DEFAULT_BOLD
+            setPadding(dpPx(16), dpPx(9), dpPx(16), dpPx(9))
+            background = GradientDrawable().apply { cornerRadius = dpPx(40).toFloat() }
+            isClickable = true
+            isFocusable = true
+            stateListAnimator = android.animation.AnimatorInflater.loadStateListAnimator(context, R.animator.press_scale)
+            setOnClickListener { onClick() }
+        }
+        return Chip(tv, key)
+    }
+
+    private fun refreshChips(animate: Boolean) {
+        val ctx = requireContext()
+        val p = ThemeManager.palette(ctx)
+        val mode = ThemeManager.mode(ctx)
+        val preset = ThemeManager.preset(ctx)
+        modeChips.forEach { styleChip(it, it.key == mode, p, animate) }
+        colorChips.forEach { styleChip(it, it.key == preset, p, animate) }
+    }
+
+    private fun styleChip(chip: Chip, selected: Boolean, p: Palette, animate: Boolean) {
+        val bgTo = if (selected) p.accent else p.container
+        val fgTo = if (selected) p.onAccent else p.onContainer
+        val bg = chip.view.background as GradientDrawable
+        if (!animate) {
+            bg.setColor(bgTo)
+            chip.view.setTextColor(fgTo)
+            return
+        }
+        val bgFrom = bg.color?.defaultColor ?: bgTo
+        ValueAnimator.ofObject(ArgbEvaluator(), bgFrom, bgTo).apply {
+            duration = 250
+            addUpdateListener {
+                bg.setColor(it.animatedValue as Int)
+            }
+            start()
+        }
+        chip.view.setTextColor(fgTo)
+    }
+
+    private fun updateFileStatus() {
+        if (_binding == null) return
+        val ctx = context ?: return
+        val full = MainActivity.hasVideoPermission(ctx) && !MainActivity.hasPartialVideoAccess(ctx)
+        val partial = MainActivity.hasPartialVideoAccess(ctx)
+        binding.fileStatus.setText(
+            when {
+                full -> R.string.settings_file_granted
+                partial -> R.string.settings_file_limited
+                else -> R.string.settings_file_denied
+            }
+        )
+        binding.btnGrantAccess.visibility = if (full) View.GONE else View.VISIBLE
     }
 
     override fun onDestroyView() {
@@ -129,15 +263,17 @@ class SettingsFragment : Fragment() {
         val choices = engineChoices()
         val labels = choices.map { it.second }.toTypedArray()
         val checked = choices.indexOfFirst { it.first == Prefs.engine(requireContext()) }.coerceAtLeast(0)
-        MaterialAlertDialogBuilder(requireContext())
-            .setTitle(R.string.settings_engine)
-            .setSingleChoiceItems(labels, checked) { dialog, which ->
-                Prefs.setEngine(requireContext(), choices[which].first)
-                binding.engineValue.text = choices[which].second
-                dialog.dismiss()
-            }
-            .setNegativeButton(R.string.action_cancel, null)
-            .show()
+        ThemeManager.themed(
+            ThemeManager.dialogBuilder(requireContext())
+                .setTitle(R.string.settings_engine)
+                .setSingleChoiceItems(labels, checked) { dialog, which ->
+                    Prefs.setEngine(requireContext(), choices[which].first)
+                    binding.engineValue.text = choices[which].second
+                    dialog.dismiss()
+                }
+                .setNegativeButton(R.string.action_cancel, null)
+                .create()
+        ).show()
     }
 
     private fun refreshStorageInfo() {
@@ -154,7 +290,7 @@ class SettingsFragment : Fragment() {
 
     private fun confirmClearTts() {
         val appCtx = requireContext().applicationContext
-        MaterialAlertDialogBuilder(requireContext())
+        ThemeManager.themed(ThemeManager.dialogBuilder(requireContext())
             .setTitle(R.string.settings_clear_tts)
             .setMessage(R.string.settings_clear_confirm)
             .setPositiveButton(R.string.action_delete) { _, _ ->
@@ -172,6 +308,6 @@ class SettingsFragment : Fragment() {
                 }.start()
             }
             .setNegativeButton(R.string.action_cancel, null)
-            .show()
+            .create()).show()
     }
 }

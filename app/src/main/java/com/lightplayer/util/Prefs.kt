@@ -16,4 +16,14 @@ object Prefs {
 
     fun engine(context: Context): String? = sp(context).getString("engine", null)
     fun setEngine(context: Context, pkg: String?) { sp(context).edit().putString("engine", pkg).apply() }
+
+    // ---- appearance ----
+    fun themeMode(context: Context): String = sp(context).getString("theme_mode", "system") ?: "system"
+    fun setThemeMode(context: Context, v: String) { sp(context).edit().putString("theme_mode", v).apply() }
+
+    fun themePreset(context: Context): String = sp(context).getString("theme_preset", "Ocean") ?: "Ocean"
+    fun setThemePreset(context: Context, v: String) { sp(context).edit().putString("theme_preset", v).apply() }
+
+    fun themeHue(context: Context): Float = sp(context).getFloat("theme_hue", 205f)
+    fun setThemeHue(context: Context, v: Float) { sp(context).edit().putFloat("theme_hue", v).apply() }
 }

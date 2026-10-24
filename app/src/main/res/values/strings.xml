@@ -2,8 +2,9 @@
     <string name="app_name">Light Player</string>
 
     <!-- Tabs -->
-    <string name="tab_video">Video</string>
+    <string name="tab_video">Videos</string>
     <string name="tab_music">Music</string>
+    <string name="music_title">Music</string>
     <string name="tab_settings">Settings</string>
 
     <!-- Video tab -->
@@ -64,11 +65,25 @@
     <string name="player_fwd_10">+10s</string>
 
     <!-- Settings -->
-    <string name="settings_tts_header">TEXT-TO-SPEECH</string>
+    <string name="settings_tts_header">Text-to-speech</string>
+    <string name="settings_title">Settings</string>
+    <string name="settings_appearance">Appearance</string>
+    <string name="settings_mode">Mode</string>
+    <string name="settings_color">Color</string>
+    <string name="settings_hue">Custom hue</string>
+    <string name="mode_system">System</string>
+    <string name="mode_light">Light</string>
+    <string name="mode_dark">Dark</string>
+    <string name="mode_black">Black</string>
+    <string name="settings_file_access">File access</string>
+    <string name="settings_file_granted">Granted ✓</string>
+    <string name="settings_file_limited">Limited: only the videos you selected are visible</string>
+    <string name="settings_file_denied">Not granted</string>
+    <string name="settings_grant">Allow access</string>
     <string name="settings_engine">TTS engine</string>
     <string name="settings_rate">Speech rate</string>
     <string name="settings_pitch">Speech pitch</string>
-    <string name="settings_storage_header">STORAGE</string>
+    <string name="settings_storage_header">Storage</string>
     <string name="settings_generated_fmt">Generated tracks: %1$d (%2$s)</string>
     <string name="settings_clear_tts">Clear generated TTS files</string>
     <string name="settings_clear_cache">Clear temporary cache</string>
@@ -76,7 +91,7 @@
     <string name="settings_cleared">Cleared</string>
     <string name="settings_default_engine">System default</string>
     <string name="settings_rate_default">1.00x</string>
-    <string name="settings_about_header">ABOUT</string>
+    <string name="settings_about_header">About</string>
     <string name="settings_version_fmt">Version %1$s</string>
     <string name="settings_about">Lightweight local media player with subtitle-based TTS audio generation.</string>
 

@@ -35,7 +35,7 @@ import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.exoplayer.source.ProgressiveMediaSource
 import androidx.media3.extractor.DefaultExtractorsFactory
 import com.lightplayer.util.TsCleaner
-import com.google.android.material.dialog.MaterialAlertDialogBuilder
+import com.lightplayer.theme.ThemeManager
 import com.lightplayer.R
 import com.lightplayer.databinding.ActivityPlayerBinding
 import com.lightplayer.databinding.DialogTtsGenerateBinding
@@ -141,6 +141,7 @@ class PlayerActivity : AppCompatActivity() {
         enterImmersive()
         applyCutoutInsets()
 
+        applyAccent()
         b.videoTitle.text = videoTitle
         b.buffering.visibility = View.GONE
         b.ttsChip.alpha = 0.4f
@@ -157,6 +158,21 @@ class PlayerActivity : AppCompatActivity() {
 
         showControls()
         mainHandler.post(ticker)
+    }
+
+    // ---------- theme ----------
+
+    private fun applyAccent() {
+        val p = ThemeManager.palette(this, forceDark = true)
+        val accent = android.content.res.ColorStateList.valueOf(p.accent)
+        val accent2 = android.content.res.ColorStateList.valueOf(p.accent2)
+        listOf(b.seekBar, b.videoVol).forEach {
+            it.progressTintList = accent
+            it.thumbTintList = accent
+        }
+        b.ttsVol.progressTintList = accent2
+        b.ttsVol.thumbTintList = accent2
+        b.buffering.indeterminateTintList = accent
     }
 
     // ---------- player ----------
@@ -397,18 +413,34 @@ class PlayerActivity : AppCompatActivity() {
         if (controlsVisible) showControls()
     }
 
+    private fun fadeIn(v: View) {
+        v.animate().cancel()
+        if (v.visibility != View.VISIBLE) {
+            v.alpha = 0f
+            v.visibility = View.VISIBLE
+        }
+        v.animate().alpha(1f).setDuration(180).start()
+    }
+
+    private fun fadeOut(v: View) {
+        v.animate().cancel()
+        v.animate().alpha(0f).setDuration(160).withEndAction {
+            if (!controlsVisible) v.visibility = View.GONE
+        }.start()
+    }
+
     private fun showControls() {
         controlsVisible = true
-        b.controls.visibility = View.VISIBLE
-        b.topBar.visibility = View.VISIBLE
+        fadeIn(b.controls)
+        fadeIn(b.topBar)
         updateSubtitleOffset()
         scheduleHideControls()
     }
 
     private fun hideControls() {
         controlsVisible = false
-        b.controls.visibility = View.GONE
-        b.topBar.visibility = View.GONE
+        fadeOut(b.controls)
+        fadeOut(b.topBar)
         updateSubtitleOffset()
         mainHandler.removeCallbacks(hideControlsRunnable)
     }
@@ -423,7 +455,7 @@ class PlayerActivity : AppCompatActivity() {
     private fun updateSubtitleOffset() {
         val lp = b.subtitleText.layoutParams as ViewGroup.MarginLayoutParams
         val density = resources.displayMetrics.density
-        val controlsH = if (b.controls.visibility == View.VISIBLE && b.controls.height > 0)
+        val controlsH = if (controlsVisible && b.controls.height > 0)
             b.controls.height + (16 * density).toInt()
         else (16 * density).toInt()
         lp.bottomMargin = controlsH
@@ -479,7 +511,7 @@ class PlayerActivity : AppCompatActivity() {
             embeddedAudio.indexOfFirst { it.group.isTrackSelected(it.trackIndex) }
         }
 
-        val builder = MaterialAlertDialogBuilder(this)
+        val builder = ThemeManager.dialogBuilder(this, forceDark = true)
             .setTitle(R.string.player_audio_title)
             .setNeutralButton(R.string.player_audio_add) { _, _ ->
                 audioPicker.launch(arrayOf("audio/*", "application/octet-stream"))
@@ -495,7 +527,7 @@ class PlayerActivity : AppCompatActivity() {
                 dialog.dismiss()
             }
         }
-        builder.show()
+        ThemeManager.themed(builder.create(), forceDark = true).show()
     }
 
     private fun selectEmbedded(entry: EmbeddedAudio) {
@@ -684,10 +716,14 @@ class PlayerActivity : AppCompatActivity() {
             generator.cancel()
             dismissGenerating()
         }
-        progressDialog = MaterialAlertDialogBuilder(this)
-            .setView(db.root)
-            .setCancelable(false)
-            .create()
+        ThemeManager.apply(db.root, ThemeManager.palette(this, forceDark = true))
+        progressDialog = ThemeManager.themed(
+            ThemeManager.dialogBuilder(this, forceDark = true)
+                .setView(db.root)
+                .setCancelable(false)
+                .create(),
+            forceDark = true
+        )
         progressDialog?.show()
     }
 
@@ -728,7 +764,8 @@ class PlayerActivity : AppCompatActivity() {
         b.ttsChip.alpha = 1f
         if (tts.enabled) {
             b.ttsChip.setText(R.string.player_tts_active)
-            b.ttsChip.setBackgroundResource(R.drawable.bg_pill_accent)
+            val accent = ThemeManager.palette(this, forceDark = true).accent
+            b.ttsChip.background = ThemeManager.rounded(this, (accent and 0x00FFFFFF) or 0x44000000, 17f, accent)
         } else {
             b.ttsChip.setText(R.string.player_tts_off)
             b.ttsChip.setBackgroundResource(R.drawable.bg_pill)

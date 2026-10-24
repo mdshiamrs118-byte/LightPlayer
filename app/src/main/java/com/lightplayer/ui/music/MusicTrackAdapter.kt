@@ -6,6 +6,7 @@ import android.view.ViewGroup
 import androidx.recyclerview.widget.RecyclerView
 import com.lightplayer.R
 import com.lightplayer.databinding.ItemTrackBinding
+import com.lightplayer.theme.ThemeManager
 import com.lightplayer.util.Formats
 
 class MusicTrackAdapter(
@@ -34,7 +35,10 @@ class MusicTrackAdapter(
 
     override fun getItemCount() = items.size
 
-    override fun onBindViewHolder(holder: VH, position: Int) = holder.bind(items[position])
+    override fun onBindViewHolder(holder: VH, position: Int) {
+        ThemeManager.ensure(holder.itemView)
+        holder.bind(items[position])
+    }
 
     inner class VH(private val b: ItemTrackBinding) : RecyclerView.ViewHolder(b.root) {
         fun bind(track: TtsTrack) {

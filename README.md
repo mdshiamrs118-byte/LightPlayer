@@ -28,6 +28,12 @@ It has no ads, no accounts and no internet requirement. Everything stays on your
 
 ## 🚀 Features
 
+### Look and feel
+- **Themes:** Mode **System / Light / Dark / Black**, six color presets (**Sunset, Forest, Ocean, Violet, Rose, Mono**) and a **custom hue slider**. Changes apply instantly, with a smooth crossfade, across the whole app
+- **Floating pill navigation:** the selected tab expands into a capsule with its label, and the bar animates its width as you switch tabs
+- Rounded cards, soft gradient backgrounds in light mode, animated tab transitions, list entrance animations, animated folder expand/collapse, press effects and fading player controls
+- The player's seek bars and accents follow your chosen color
+
 ### Playback
 - Powered by **Media3 ExoPlayer**: wide format and codec support, with automatic decoder fallback
 - Full-screen immersive player, with cutout/notch-safe controls
@@ -85,6 +91,7 @@ Allow access to videos when asked. If you skip this, you can still play anything
 | Convert many subtitle files to audio at once | **Music** tab → **Convert subtitles to audio** → select several subtitle files |
 | Find or delete generated audio | **Music** tab (long-press a track to delete it) |
 | Change voice, speed or pitch | **Settings** tab |
+| Change colors or light/dark mode | **Settings** tab → **Appearance** (mode, color preset, custom hue) |
 
 ### About added audio tracks
 When you add an external audio track, it **replaces** the video's own audio. Switch back by choosing one of the embedded tracks in the **♪** menu. The track follows the video when you seek or pause. If it is shorter than the video, it simply stops at its end.
@@ -130,7 +137,8 @@ app/src/main/java/com/lightplayer/
 ├── ui/
 │   ├── video/               # library, folders, file picker
 │   ├── music/               # generated TTS tracks
-│   └── settings/            # TTS and storage settings
+│   └── settings/            # appearance, file access, TTS and storage settings
+├── theme/                   # theme engine (palette, modes, hue) and the floating pill nav bar
 ├── subtitle/                # SRT / VTT / ASS parsing
 ├── tts/                     # speech generation and caching
 └── util/                    # thumbnails, formatting, preferences, header cleanup

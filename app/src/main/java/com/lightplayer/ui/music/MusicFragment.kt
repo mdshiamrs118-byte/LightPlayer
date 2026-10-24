@@ -13,7 +13,8 @@ import android.widget.SeekBar
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.fragment.app.Fragment
 import com.lightplayer.databinding.DialogTtsGenerateBinding
-import com.google.android.material.dialog.MaterialAlertDialogBuilder
+import android.transition.TransitionManager
+import com.lightplayer.theme.ThemeManager
 import com.lightplayer.R
 import com.lightplayer.databinding.FragmentMusicBinding
 import com.lightplayer.tts.TtsIndex
@@ -64,7 +65,10 @@ class MusicFragment : Fragment() {
         return binding.root
     }
 
+    private var listAnimated = false
+
     override fun onViewCreated(view: View, savedInstanceState: Bundle?) {
+        ThemeManager.apply(view, ThemeManager.palette(requireContext()))
         adapter = MusicTrackAdapter(
             onTrackClick = { track -> toggle(track) },
             onTrackLongClick = { track -> confirmDelete(track) }
@@ -122,6 +126,10 @@ class MusicFragment : Fragment() {
                 adapter.submit(tracks)
                 adapter.playingUri = currentUri
                 binding.emptyState.visibility = if (tracks.isEmpty()) View.VISIBLE else View.GONE
+                if (!listAnimated && tracks.isNotEmpty()) {
+                    listAnimated = true
+                    binding.recycler.scheduleLayoutAnimation()
+                }
             }
         }.start()
     }
@@ -150,6 +158,7 @@ class MusicFragment : Fragment() {
         p.setOnPreparedListener { mp ->
             if (_binding == null) return@setOnPreparedListener
             mp.start()
+            TransitionManager.beginDelayedTransition(binding.root as ViewGroup)
             binding.nowPlaying.visibility = View.VISIBLE
             binding.npTitle.text = track.videoTitle
             binding.npPlay.setImageResource(R.drawable.ic_pause)
@@ -186,6 +195,7 @@ class MusicFragment : Fragment() {
     private fun stopPlayback() {
         releasePlayer()
         if (_binding != null) {
+            TransitionManager.beginDelayedTransition(binding.root as ViewGroup)
             binding.nowPlaying.visibility = View.GONE
             binding.npPlay.setImageResource(R.drawable.ic_play)
         }
@@ -203,7 +213,7 @@ class MusicFragment : Fragment() {
 
     private fun confirmDelete(track: TtsTrack) {
         val ctx = requireContext()
-        MaterialAlertDialogBuilder(ctx)
+        ThemeManager.themed(ThemeManager.dialogBuilder(ctx)
             .setTitle(R.string.music_delete_title)
             .setMessage(getString(R.string.music_delete_msg, track.videoTitle))
             .setPositiveButton(R.string.action_delete) { _, _ ->
@@ -220,7 +230,7 @@ class MusicFragment : Fragment() {
                 }.start()
             }
             .setNegativeButton(R.string.action_cancel, null)
-            .show()
+            .create()).show()
     }
 
     // ---------- batch subtitle -> audio ----------
@@ -235,10 +245,13 @@ class MusicFragment : Fragment() {
         db.dlgTitle.text = getString(R.string.batch_title_fmt, 1, uris.size)
         db.dlgSub.setText(R.string.dlg_generating_preparing)
         db.dlgPercent.text = ""
-        batchDialog = MaterialAlertDialogBuilder(ctx)
-            .setView(db.root)
-            .setCancelable(false)
-            .create()
+        ThemeManager.apply(db.root, ThemeManager.palette(ctx))
+        batchDialog = ThemeManager.themed(
+            ThemeManager.dialogBuilder(ctx)
+                .setView(db.root)
+                .setCancelable(false)
+                .create()
+        )
         batchDialog?.show()
         binding.root.keepScreenOn = true
 
@@ -298,10 +311,12 @@ class MusicFragment : Fragment() {
             failed.forEach { lines.add(getString(R.string.batch_failed_item, it.name, it.detail)) }
         }
 
-        MaterialAlertDialogBuilder(requireContext())
-            .setTitle(if (canceled) R.string.batch_summary_stopped else R.string.batch_summary_done)
-            .setMessage(lines.joinToString("\n"))
-            .setPositiveButton(android.R.string.ok, null)
-            .show()
+        ThemeManager.themed(
+            ThemeManager.dialogBuilder(requireContext())
+                .setTitle(if (canceled) R.string.batch_summary_stopped else R.string.batch_summary_done)
+                .setMessage(lines.joinToString("\n"))
+                .setPositiveButton(android.R.string.ok, null)
+                .create()
+        ).show()
     }
 }

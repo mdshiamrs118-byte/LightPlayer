@@ -6,6 +6,7 @@ import androidx.recyclerview.widget.RecyclerView
 import com.lightplayer.R
 import com.lightplayer.databinding.ItemFolderBinding
 import com.lightplayer.databinding.ItemVideoBinding
+import com.lightplayer.theme.ThemeManager
 import com.lightplayer.util.Formats
 import com.lightplayer.util.Thumbs
 
@@ -21,7 +22,34 @@ class VideoFolderAdapter(
 
     private val rows = ArrayList<Row>()
 
+    /** Folders in display order; kept so a single folder can be opened/closed with an animation. */
+    private var folders: List<FolderItem> = emptyList()
+
+    /** Opens or closes one folder, animating only the rows that appear or disappear. */
+    fun setExpanded(folder: FolderItem, open: Boolean) {
+        val index = rows.indexOfFirst { it is Row.FolderRow && it.folder.id == folder.id }
+        if (index < 0) return
+        val current = rows[index] as Row.FolderRow
+        if (current.expanded == open) return
+        rows[index] = Row.FolderRow(folder, open)
+        if (open) {
+            val added = folder.videos.map { Row.VideoRow(it) }
+            rows.addAll(index + 1, added)
+            notifyItemChanged(index, PAYLOAD_CHEVRON)
+            notifyItemRangeInserted(index + 1, added.size)
+        } else {
+            var count = 0
+            while (index + 1 < rows.size && rows[index + 1] is Row.VideoRow) {
+                rows.removeAt(index + 1)
+                count++
+            }
+            notifyItemChanged(index, PAYLOAD_CHEVRON)
+            notifyItemRangeRemoved(index + 1, count)
+        }
+    }
+
     fun submit(folders: List<FolderItem>, expanded: Set<String>) {
+        this.folders = folders
         rows.clear()
         for (f in folders) {
             val isOpen = expanded.contains(f.id)
@@ -43,14 +71,26 @@ class VideoFolderAdapter(
     }
 
     override fun onBindViewHolder(holder: RecyclerView.ViewHolder, position: Int) {
+        ThemeManager.ensure(holder.itemView)
         when (val row = rows[position]) {
-            is Row.FolderRow -> (holder as FolderVH).bind(row, onFolderClick)
+            is Row.FolderRow -> (holder as FolderVH).bind(row, onFolderClick, animateChevron = false)
             is Row.VideoRow -> (holder as VideoVH).bind(row, onVideoClick)
         }
     }
 
+    override fun onBindViewHolder(holder: RecyclerView.ViewHolder, position: Int, payloads: MutableList<Any>) {
+        if (payloads.contains(PAYLOAD_CHEVRON) && holder is FolderVH) {
+            val row = rows[position] as? Row.FolderRow
+            if (row != null) {
+                holder.bind(row, onFolderClick, animateChevron = true)
+                return
+            }
+        }
+        super.onBindViewHolder(holder, position, payloads)
+    }
+
     private class FolderVH(private val b: ItemFolderBinding) : RecyclerView.ViewHolder(b.root) {
-        fun bind(row: Row.FolderRow, click: (FolderItem) -> Unit) {
+        fun bind(row: Row.FolderRow, click: (FolderItem) -> Unit, animateChevron: Boolean) {
             val f = row.folder
             val ctx = itemView.context
             b.folderName.text = f.name
@@ -59,7 +99,9 @@ class VideoFolderAdapter(
             b.folderCount.text =
                 if (f.videos.size == 1) ctx.getString(R.string.video_one_count)
                 else ctx.getString(R.string.video_count_fmt, f.videos.size)
-            b.chevron.rotation = if (row.expanded) 90f else 0f
+            val target = if (row.expanded) 90f else 0f
+            if (animateChevron) b.chevron.animate().rotation(target).setDuration(250).start()
+            else { b.chevron.animate().cancel(); b.chevron.rotation = target }
             b.root.setOnClickListener { click(f) }
         }
     }
@@ -78,5 +120,6 @@ class VideoFolderAdapter(
     private companion object {
         const val TYPE_FOLDER = 0
         const val TYPE_VIDEO = 1
+        const val PAYLOAD_CHEVRON = "chevron"
     }
 }

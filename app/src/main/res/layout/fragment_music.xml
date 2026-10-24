@@ -3,8 +3,20 @@
     xmlns:app="http://schemas.android.com/apk/res-auto"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
-    android:background="@color/bg"
-    android:orientation="vertical">
+    android:orientation="vertical"
+    android:paddingBottom="84dp">
+
+    <TextView
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:paddingHorizontal="22dp"
+        android:paddingTop="20dp"
+        android:paddingBottom="8dp"
+        android:tag="text1"
+        android:text="@string/music_title"
+        android:textColor="@color/text_primary"
+        android:textSize="32sp"
+        android:textStyle="bold" />
 
     <FrameLayout
         android:layout_width="match_parent"
@@ -16,6 +28,7 @@
             android:layout_width="match_parent"
             android:layout_height="match_parent"
             android:clipToPadding="false"
+            android:layoutAnimation="@anim/layout_fall"
             android:paddingTop="4dp"
             android:paddingBottom="8dp" />
 
@@ -34,6 +47,7 @@
                 android:layout_height="64dp"
                 android:importantForAccessibility="no"
                 android:src="@drawable/ic_music"
+                android:tag="icon_text2"
                 android:tint="@color/text_secondary" />
 
             <TextView
@@ -42,6 +56,7 @@
                 android:layout_height="wrap_content"
                 android:layout_marginTop="16dp"
                 android:gravity="center"
+                android:tag="text2"
                 android:text="@string/music_empty"
                 android:textColor="@color/text_secondary"
                 android:textSize="15sp" />
@@ -52,10 +67,13 @@
         android:id="@+id/nowPlaying"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:background="@color/surface"
+        android:layout_marginHorizontal="16dp"
+        android:layout_marginTop="6dp"
+        android:background="@drawable/bg_count_pill"
         android:orientation="vertical"
-        android:paddingHorizontal="14dp"
+        android:paddingHorizontal="16dp"
         android:paddingVertical="10dp"
+        android:tag="card"
         android:visibility="gone">
 
         <LinearLayout
@@ -72,6 +90,7 @@
                 android:ellipsize="marquee"
                 android:marqueeRepeatLimit="marquee_forever"
                 android:singleLine="true"
+                android:tag="text1"
                 android:text="@string/music_empty"
                 android:textColor="@color/text_primary"
                 android:textSize="14sp" />
@@ -81,6 +100,7 @@
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
                 android:layout_marginEnd="10dp"
+                android:tag="text2"
                 android:textColor="@color/text_secondary"
                 android:textSize="12sp" />
 
@@ -91,6 +111,7 @@
                 android:background="?attr/selectableItemBackgroundBorderless"
                 android:contentDescription="@string/cd_play_pause"
                 android:src="@drawable/ic_play"
+                android:tag="icon_accent"
                 android:tint="@color/text_primary" />
 
             <ImageButton
@@ -100,6 +121,7 @@
                 android:background="?attr/selectableItemBackgroundBorderless"
                 android:contentDescription="@string/cd_stop"
                 android:src="@drawable/ic_stop"
+                android:tag="icon_text1"
                 android:tint="@color/text_primary" />
         </LinearLayout>
 
@@ -109,22 +131,20 @@
             android:layout_height="wrap_content"
             android:layout_marginTop="4dp"
             android:progressTint="@color/accent"
+            android:tag="seek"
             android:thumbTint="@color/accent" />
     </LinearLayout>
 
-    <FrameLayout
+    <com.google.android.material.button.MaterialButton
+        android:id="@+id/btnConvert"
         android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:background="@color/surface"
-        android:paddingHorizontal="14dp"
-        android:paddingVertical="10dp">
-
-        <com.google.android.material.button.MaterialButton
-            android:id="@+id/btnConvert"
-            android:layout_width="match_parent"
-            android:layout_height="52dp"
-            android:text="@string/music_convert"
-            app:icon="@drawable/ic_subtitles"
-            app:iconGravity="textStart" />
-    </FrameLayout>
+        android:layout_height="56dp"
+        android:layout_marginHorizontal="16dp"
+        android:layout_marginTop="10dp"
+        android:stateListAnimator="@animator/press_scale"
+        android:tag="btn"
+        android:text="@string/music_convert"
+        app:cornerRadius="28dp"
+        app:icon="@drawable/ic_subtitles"
+        app:iconGravity="textStart" />
 </LinearLayout>

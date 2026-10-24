@@ -6,7 +6,7 @@
     android:gravity="center_vertical"
     android:orientation="horizontal"
     android:paddingStart="30dp"
-    android:paddingEnd="16dp"
+    android:paddingEnd="20dp"
     android:paddingVertical="8dp">
 
     <FrameLayout
@@ -14,7 +14,8 @@
         android:layout_height="60dp"
         android:layout_marginEnd="14dp"
         android:background="@drawable/bg_thumb"
-        android:clipToOutline="true">
+        android:clipToOutline="true"
+        android:tag="thumb">
 
         <ImageView
             android:id="@+id/thumb"
@@ -43,6 +44,7 @@
 
         <TextView
             android:id="@+id/videoTitle"
+            android:tag="text1"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:ellipsize="end"
@@ -52,6 +54,7 @@
 
         <TextView
             android:id="@+id/videoMeta"
+            android:tag="text2"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:layout_marginTop="3dp"

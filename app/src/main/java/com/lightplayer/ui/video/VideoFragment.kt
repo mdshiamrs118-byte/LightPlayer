@@ -12,6 +12,7 @@ import com.lightplayer.MainActivity
 import com.lightplayer.R
 import com.lightplayer.databinding.FragmentVideoBinding
 import com.lightplayer.player.PlayerActivity
+import com.lightplayer.theme.ThemeManager
 import java.util.LinkedHashSet
 
 class VideoFragment : Fragment() {
@@ -22,6 +23,7 @@ class VideoFragment : Fragment() {
     private lateinit var adapter: VideoFolderAdapter
     private val expanded = LinkedHashSet<String>()
     private var currentFolders: List<FolderItem> = emptyList()
+    private var listAnimated = false
 
     // Android's system file picker: lets the user play any video, even ones the
     // media library doesn't list.
@@ -36,6 +38,7 @@ class VideoFragment : Fragment() {
     }
 
     override fun onViewCreated(view: View, savedInstanceState: Bundle?) {
+        ThemeManager.apply(view, ThemeManager.palette(requireContext()))
         adapter = VideoFolderAdapter(
             onFolderClick = { folder -> toggle(folder) },
             onVideoClick = { video -> open(video) }
@@ -110,13 +113,18 @@ class VideoFragment : Fragment() {
                     binding.emptyState.visibility = View.GONE
                 }
                 adapter.submit(folders, expanded)
+                if (!listAnimated && folders.isNotEmpty()) {
+                    listAnimated = true
+                    binding.recycler.scheduleLayoutAnimation()
+                }
             }
         }.start()
     }
 
     private fun toggle(folder: FolderItem) {
-        if (!expanded.remove(folder.id)) expanded.add(folder.id)
-        adapter.submit(currentFolders, expanded)
+        val open = !expanded.remove(folder.id)
+        if (open) expanded.add(folder.id)
+        adapter.setExpanded(folder, open)
     }
 
     private fun open(video: VideoItem) {

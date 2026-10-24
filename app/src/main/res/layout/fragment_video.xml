@@ -2,8 +2,7 @@
 <FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:app="http://schemas.android.com/apk/res-auto"
     android:layout_width="match_parent"
-    android:layout_height="match_parent"
-    android:background="@color/bg">
+    android:layout_height="match_parent">
 
     <LinearLayout
         android:layout_width="match_parent"
@@ -14,16 +13,17 @@
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:orientation="vertical"
-            android:paddingHorizontal="20dp"
+            android:paddingHorizontal="22dp"
             android:paddingTop="20dp"
             android:paddingBottom="8dp">
 
             <TextView
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
+                android:tag="text1"
                 android:text="@string/video_title"
                 android:textColor="@color/text_primary"
-                android:textSize="28sp"
+                android:textSize="32sp"
                 android:textStyle="bold" />
 
             <TextView
@@ -31,8 +31,9 @@
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
                 android:layout_marginTop="2dp"
+                android:tag="text2"
                 android:textColor="@color/text_secondary"
-                android:textSize="13sp" />
+                android:textSize="14sp" />
         </LinearLayout>
 
         <TextView
@@ -42,7 +43,8 @@
             android:layout_marginHorizontal="16dp"
             android:layout_marginVertical="6dp"
             android:background="@drawable/bg_count_pill"
-            android:padding="12dp"
+            android:padding="14dp"
+            android:tag="banner"
             android:text="@string/video_limited"
             android:textColor="@color/text_primary"
             android:textSize="13sp"
@@ -54,8 +56,9 @@
             android:layout_height="0dp"
             android:layout_weight="1"
             android:clipToPadding="false"
+            android:layoutAnimation="@anim/layout_fall"
             android:paddingTop="4dp"
-            android:paddingBottom="96dp" />
+            android:paddingBottom="170dp" />
     </LinearLayout>
 
     <LinearLayout
@@ -73,6 +76,7 @@
             android:layout_height="64dp"
             android:importantForAccessibility="no"
             android:src="@drawable/ic_video"
+            android:tag="icon_text2"
             android:tint="@color/text_secondary" />
 
         <TextView
@@ -81,6 +85,7 @@
             android:layout_height="wrap_content"
             android:layout_marginTop="16dp"
             android:gravity="center"
+            android:tag="text2"
             android:text="@string/video_empty"
             android:textColor="@color/text_secondary"
             android:textSize="15sp" />
@@ -91,6 +96,7 @@
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
             android:layout_marginTop="16dp"
+            android:tag="btn_outline"
             android:text="@string/video_grant"
             android:visibility="gone" />
     </LinearLayout>
@@ -100,6 +106,7 @@
         android:layout_width="40dp"
         android:layout_height="40dp"
         android:layout_gravity="center"
+        android:tag="progress"
         android:visibility="gone" />
 
     <com.google.android.material.floatingactionbutton.ExtendedFloatingActionButton
@@ -107,7 +114,11 @@
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
         android:layout_gravity="bottom|end"
-        android:layout_margin="16dp"
+        android:layout_marginStart="16dp"
+        android:layout_marginTop="16dp"
+        android:layout_marginEnd="16dp"
+        android:layout_marginBottom="96dp"
+        android:tag="fab"
         android:text="@string/video_open_file"
         app:icon="@drawable/ic_folder" />
 </FrameLayout>
