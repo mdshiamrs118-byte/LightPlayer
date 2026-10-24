@@ -93,34 +93,6 @@
             android:textSize="16sp"
             android:textStyle="bold" />
 
-        <TextView
-            android:id="@+id/btnAspect"
-            android:layout_width="wrap_content"
-            android:layout_height="32dp"
-            android:layout_marginEnd="6dp"
-            android:background="@drawable/bg_pill"
-            android:contentDescription="@string/cd_aspect"
-            android:gravity="center"
-            android:minWidth="44dp"
-            android:paddingHorizontal="10dp"
-            android:text="@string/aspect_fit"
-            android:textColor="@android:color/white"
-            android:textSize="12sp" />
-
-        <TextView
-            android:id="@+id/btnSpeed"
-            android:layout_width="wrap_content"
-            android:layout_height="32dp"
-            android:layout_marginEnd="4dp"
-            android:background="@drawable/bg_pill"
-            android:contentDescription="@string/cd_speed"
-            android:gravity="center"
-            android:minWidth="44dp"
-            android:paddingHorizontal="10dp"
-            android:text="1x"
-            android:textColor="@android:color/white"
-            android:textSize="12sp" />
-
         <ImageButton
             android:id="@+id/btnClose"
             android:layout_width="44dp"
@@ -213,54 +185,33 @@
                 android:tint="@android:color/white"
                 android:visibility="gone" />
 
-            <TextView
-                android:id="@+id/btnRewind"
-                android:layout_width="wrap_content"
-                android:layout_height="34dp"
-                android:layout_marginStart="4dp"
-                android:background="@drawable/bg_pill"
-                android:contentDescription="@string/cd_rewind"
-                android:gravity="center"
-                android:paddingHorizontal="10dp"
-                android:text="@string/player_back_10"
-                android:textColor="@android:color/white"
-                android:textSize="12sp" />
-
-            <TextView
-                android:id="@+id/btnForward"
-                android:layout_width="wrap_content"
-                android:layout_height="34dp"
-                android:layout_marginStart="6dp"
-                android:background="@drawable/bg_pill"
-                android:contentDescription="@string/cd_forward"
-                android:gravity="center"
-                android:paddingHorizontal="10dp"
-                android:text="@string/player_fwd_10"
-                android:textColor="@android:color/white"
-                android:textSize="12sp" />
-
-            <Space
+            <!-- Pinned menu actions: scrolls sideways when there are many -->
+            <HorizontalScrollView
+                android:id="@+id/pinnedScroll"
                 android:layout_width="0dp"
-                android:layout_height="1dp"
-                android:layout_weight="1" />
+                android:layout_height="46dp"
+                android:layout_marginStart="8dp"
+                android:layout_weight="1"
+                android:fillViewport="true"
+                android:overScrollMode="never"
+                android:scrollbars="none">
+
+                <LinearLayout
+                    android:id="@+id/pinnedStrip"
+                    android:layout_width="match_parent"
+                    android:layout_height="match_parent"
+                    android:gravity="center_vertical|end"
+                    android:orientation="horizontal" />
+            </HorizontalScrollView>
 
             <ImageButton
-                android:id="@+id/btnAudio"
-                android:layout_width="44dp"
-                android:layout_height="44dp"
+                android:id="@+id/btnMenu"
+                android:layout_width="46dp"
+                android:layout_height="46dp"
                 android:layout_marginStart="4dp"
                 android:background="?attr/selectableItemBackgroundBorderless"
-                android:contentDescription="@string/cd_audio"
-                android:src="@drawable/ic_music"
-                android:tint="@android:color/white" />
-
-            <ImageButton
-                android:id="@+id/btnSubs"
-                android:layout_width="44dp"
-                android:layout_height="44dp"
-                android:background="?attr/selectableItemBackgroundBorderless"
-                android:contentDescription="@string/cd_subtitles"
-                android:src="@drawable/ic_subtitles"
+                android:contentDescription="@string/cd_menu"
+                android:src="@drawable/ic_settings"
                 android:tint="@android:color/white" />
 
 </LinearLayout>
@@ -356,4 +307,27 @@
                 android:textSize="12sp" />
         </LinearLayout>
     </LinearLayout>
+
+    <!-- Player menu: slides up above the controls, scrolls if it gets long -->
+    <ScrollView
+        android:id="@+id/menuPanel"
+        android:layout_width="250dp"
+        android:layout_height="wrap_content"
+        android:layout_gravity="bottom|end"
+        android:layout_marginTop="72dp"
+        android:layout_marginEnd="14dp"
+        android:layout_marginBottom="160dp"
+        android:clickable="true"
+        android:elevation="10dp"
+        android:overScrollMode="ifContentScrolls"
+        android:scrollbars="none"
+        android:visibility="gone">
+
+        <LinearLayout
+            android:id="@+id/menuList"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="vertical"
+            android:paddingVertical="6dp" />
+    </ScrollView>
 </FrameLayout>

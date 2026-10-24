@@ -43,4 +43,12 @@ object Prefs {
 
     fun playbackSpeed(context: Context): Float = sp(context).getFloat("playback_speed", 1f)
     fun setPlaybackSpeed(context: Context, v: Float) { sp(context).edit().putFloat("playback_speed", v).apply() }
+
+    /** Ids of the player-menu actions pinned next to the menu button, in order. */
+    fun pinnedActions(context: Context): List<String> =
+        (sp(context).getString("pinned_actions", "") ?: "").split(',').filter { it.isNotBlank() }
+
+    fun setPinnedActions(context: Context, ids: List<String>) {
+        sp(context).edit().putString("pinned_actions", ids.joinToString(",")).apply()
+    }
 }

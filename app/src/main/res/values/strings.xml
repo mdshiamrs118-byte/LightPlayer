@@ -102,6 +102,16 @@
     <string name="notif_play">Play</string>
     <string name="notif_pause">Pause</string>
     <string name="notif_close">Close</string>
+    <string name="cd_menu">Player menu</string>
+    <string name="menu_aspect">Aspect ratio</string>
+    <string name="menu_audio">Audio tracks</string>
+    <string name="menu_subtitles">Subtitles and speech</string>
+    <string name="menu_tts">Spoken subtitles</string>
+    <string name="menu_on">On</string>
+    <string name="menu_off">Off</string>
+    <string name="menu_hint">Long-press an item to pin it next to the menu button. Long-press a pinned button to unpin it.</string>
+    <string name="hud_pinned_fmt">Pinned: %1$s</string>
+    <string name="hud_unpinned_fmt">Unpinned: %1$s</string>
     <string name="settings_nav">Navigation style</string>
     <string name="nav_pill">Pill</string>
     <string name="nav_classic">Classic</string>

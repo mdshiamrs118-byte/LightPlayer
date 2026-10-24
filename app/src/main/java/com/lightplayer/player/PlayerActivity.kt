@@ -1,6 +1,21 @@
 package com.lightplayer.player
 
 import android.graphics.Matrix
+import android.content.res.ColorStateList
+import android.graphics.Color
+import android.view.Gravity
+import android.graphics.Typeface
+import android.graphics.drawable.Drawable
+import android.util.TypedValue
+import android.view.HapticFeedbackConstants
+import android.view.animation.DecelerateInterpolator
+import android.view.animation.OvershootInterpolator
+import android.widget.FrameLayout
+import android.widget.ImageButton
+import android.widget.ImageView
+import android.widget.LinearLayout
+import android.widget.TextView
+import androidx.activity.OnBackPressedCallback
 import android.app.NotificationManager
 import android.content.BroadcastReceiver
 import android.content.Context
@@ -515,13 +530,13 @@ class PlayerActivity : AppCompatActivity() {
         tts.speed = value        // keep the spoken track and added audio in step with the video
         extra.speed = value
         Prefs.setPlaybackSpeed(this, value)
-        b.btnSpeed.text = speedLabel(value)
+        updatePinnedValues()
         showHud(speedLabel(value))
     }
 
     private fun setAspect(mode: Aspect) {
         aspect = mode
-        b.btnAspect.setText(mode.labelRes)
+        updatePinnedValues()
         updateVideoTransform()
         showHud(getString(mode.labelRes))
     }
@@ -583,22 +598,302 @@ class PlayerActivity : AppCompatActivity() {
         }
     }
 
+    // ---------- player menu (gear button) ----------
+
+    /** One entry in the gear menu. It can also be pinned next to the gear as a quick button. */
+    private class PlayerAction(
+        val id: String,
+        val iconRes: Int,
+        val labelRes: Int,
+        val value: (() -> String)? = null,
+        /** Pinned as a small text pill showing [value] instead of an icon. */
+        val valueAsPill: Boolean = false,
+        val run: () -> Unit
+    )
+
+    private var actions: List<PlayerAction> = emptyList()
+    private var menuOpen = false
+    private val pinnedValueViews = ArrayList<Pair<PlayerAction, TextView>>()
+    private lateinit var menuBackCallback: OnBackPressedCallback
+
+    private fun dpi(v: Int): Int = (v * resources.displayMetrics.density + 0.5f).toInt()
+
+    /** To add a button to the menu in the future, add one PlayerAction here. */
+    private fun setupMenu() {
+        actions = listOf(
+            PlayerAction(
+                id = "speed", iconRes = R.drawable.ic_speed_fwd, labelRes = R.string.player_speed_title,
+                value = { speedLabel(speed) }, valueAsPill = true, run = { showSpeedDialog() }
+            ),
+            PlayerAction(
+                id = "aspect", iconRes = R.drawable.ic_aspect, labelRes = R.string.menu_aspect,
+                value = { getString(aspect.labelRes) }, valueAsPill = true, run = { cycleAspect() }
+            ),
+            PlayerAction(
+                id = "audio", iconRes = R.drawable.ic_music, labelRes = R.string.menu_audio,
+                run = { showAudioDialog() }
+            ),
+            PlayerAction(
+                id = "subtitles", iconRes = R.drawable.ic_subtitles, labelRes = R.string.menu_subtitles,
+                run = { pickSubtitle() }
+            ),
+            PlayerAction(
+                id = "tts", iconRes = R.drawable.ic_tts, labelRes = R.string.menu_tts,
+                value = { getString(if (tts.isLoaded && tts.enabled) R.string.menu_on else R.string.menu_off) },
+                run = { if (tts.isLoaded) toggleTts() else pickSubtitle() }
+            )
+        )
+
+        val p = ThemeManager.palette(this, forceDark = true)
+        val surface = (p.surface and 0x00FFFFFF) or 0xF2000000.toInt()
+        b.menuPanel.background = ThemeManager.rounded(this, surface, 20f, p.stroke)
+        b.menuPanel.clipToOutline = true
+
+        menuBackCallback = object : OnBackPressedCallback(false) {
+            override fun handleOnBackPressed() { closeMenu() }
+        }
+        onBackPressedDispatcher.addCallback(this, menuBackCallback)
+
+        refreshPinned()
+    }
+
+    private fun selectableBackground(borderless: Boolean): Drawable? {
+        val tv = TypedValue()
+        val attr = if (borderless) android.R.attr.selectableItemBackgroundBorderless
+        else android.R.attr.selectableItemBackground
+        if (!theme.resolveAttribute(attr, tv, true) || tv.resourceId == 0) return null
+        return ContextCompat.getDrawable(this, tv.resourceId)
+    }
+
+    private fun buildMenuRows() {
+        val list = b.menuList
+        list.removeAllViews()
+        val pinned = Prefs.pinnedActions(this)
+
+        actions.forEach { action ->
+            val row = LinearLayout(this).apply {
+                orientation = LinearLayout.HORIZONTAL
+                gravity = Gravity.CENTER_VERTICAL
+                minimumHeight = dpi(52)
+                setPadding(dpi(16), 0, dpi(14), 0)
+                background = selectableBackground(borderless = false)
+                isClickable = true
+                isFocusable = true
+
+                addView(
+                    ImageView(context).apply {
+                        setImageResource(action.iconRes)
+                        imageTintList = ColorStateList.valueOf(Color.WHITE)
+                        importantForAccessibility = View.IMPORTANT_FOR_ACCESSIBILITY_NO
+                    },
+                    LinearLayout.LayoutParams(dpi(22), dpi(22))
+                )
+                addView(
+                    TextView(context).apply {
+                        setText(action.labelRes)
+                        setTextColor(Color.WHITE)
+                        textSize = 15f
+                        maxLines = 1
+                    },
+                    LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f).apply { marginStart = dpi(14) }
+                )
+                action.value?.let { read ->
+                    addView(
+                        TextView(context).apply {
+                            text = read()
+                            setTextColor(0xFFB8BCC4.toInt())
+                            textSize = 13f
+                            maxLines = 1
+                        },
+                        LinearLayout.LayoutParams(
+                            ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT
+                        ).apply { marginStart = dpi(8) }
+                    )
+                }
+                if (action.id in pinned) {
+                    addView(
+                        TextView(context).apply {
+                            text = "\uD83D\uDCCC"
+                            textSize = 12f
+                        },
+                        LinearLayout.LayoutParams(
+                            ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT
+                        ).apply { marginStart = dpi(8) }
+                    )
+                }
+
+                setOnClickListener {
+                    closeMenu()
+                    action.run()
+                }
+                setOnLongClickListener {
+                    performHapticFeedback(HapticFeedbackConstants.LONG_PRESS)
+                    togglePin(action)
+                    true
+                }
+            }
+            list.addView(
+                row,
+                LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT)
+            )
+        }
+
+        list.addView(
+            TextView(this).apply {
+                setText(R.string.menu_hint)
+                setTextColor(0xFF8D929B.toInt())
+                textSize = 11f
+                setPadding(dpi(16), dpi(8), dpi(16), dpi(8))
+            },
+            LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT)
+        )
+    }
+
+    private fun togglePin(action: PlayerAction) {
+        val ids = Prefs.pinnedActions(this).toMutableList()
+        val label = getString(action.labelRes)
+        if (ids.remove(action.id)) {
+            showHud(getString(R.string.hud_unpinned_fmt, label))
+        } else {
+            ids.add(action.id)
+            showHud(getString(R.string.hud_pinned_fmt, label))
+        }
+        Prefs.setPinnedActions(this, ids)
+        refreshPinned()
+        if (menuOpen) buildMenuRows()
+    }
+
+    /** Rebuilds the row of pinned quick buttons beside the gear. */
+    private fun refreshPinned() {
+        val strip = b.pinnedStrip
+        strip.removeAllViews()
+        pinnedValueViews.clear()
+
+        Prefs.pinnedActions(this).forEach { id ->
+            val action = actions.firstOrNull { it.id == id } ?: return@forEach
+            val view: View
+            if (action.valueAsPill && action.value != null) {
+                val pill = TextView(this).apply {
+                    text = action.value.invoke()
+                    textSize = 12f
+                    typeface = Typeface.DEFAULT_BOLD
+                    setTextColor(Color.WHITE)
+                    gravity = Gravity.CENTER
+                    minWidth = dpi(44)
+                    setPadding(dpi(12), 0, dpi(12), 0)
+                    background = ContextCompat.getDrawable(this@PlayerActivity, R.drawable.bg_pill)
+                }
+                pinnedValueViews.add(action to pill)
+                view = pill
+            } else {
+                view = ImageButton(this).apply {
+                    setImageResource(action.iconRes)
+                    imageTintList = ColorStateList.valueOf(Color.WHITE)
+                    background = selectableBackground(borderless = true)
+                }
+            }
+            view.contentDescription = getString(action.labelRes)
+            view.setOnClickListener {
+                closeMenu()
+                action.run()
+            }
+            view.setOnLongClickListener {
+                view.performHapticFeedback(HapticFeedbackConstants.LONG_PRESS)
+                togglePin(action)   // long-press a pinned button to unpin it
+                true
+            }
+            strip.addView(
+                view,
+                LinearLayout.LayoutParams(
+                    if (action.valueAsPill) ViewGroup.LayoutParams.WRAP_CONTENT else dpi(40),
+                    if (action.valueAsPill) dpi(32) else dpi(40)
+                ).apply { marginStart = dpi(4) }
+            )
+        }
+    }
+
+    private fun updatePinnedValues() {
+        pinnedValueViews.forEach { (action, view) -> view.text = action.value?.invoke() ?: "" }
+    }
+
+    private fun spinGear() {
+        b.btnMenu.animate().cancel()
+        b.btnMenu.animate()
+            .rotationBy(180f)
+            .setDuration(350)
+            .setInterpolator(OvershootInterpolator(1.1f))
+            .start()
+    }
+
+    private fun openMenu() {
+        if (menuOpen) return
+        menuOpen = true
+        menuBackCallback.isEnabled = true
+        mainHandler.removeCallbacks(hideControlsRunnable)
+        buildMenuRows()
+        spinGear()
+
+        val panel = b.menuPanel
+        val lp = panel.layoutParams as FrameLayout.LayoutParams
+        lp.bottomMargin = b.controls.height + dpi(8)
+        panel.layoutParams = lp
+
+        panel.animate().cancel()
+        panel.visibility = View.VISIBLE
+        panel.alpha = 0f
+        panel.translationY = dpi(40).toFloat()
+        panel.animate()
+            .alpha(1f)
+            .translationY(0f)
+            .setDuration(260)
+            .setInterpolator(DecelerateInterpolator(1.8f))
+            .start()
+
+        // Rows rise in one after another.
+        for (i in 0 until b.menuList.childCount) {
+            val row = b.menuList.getChildAt(i)
+            row.alpha = 0f
+            row.translationY = dpi(16).toFloat()
+            row.animate()
+                .alpha(1f)
+                .translationY(0f)
+                .setStartDelay(50L + i * 35L)
+                .setDuration(240)
+                .setInterpolator(DecelerateInterpolator(1.6f))
+                .start()
+        }
+    }
+
+    private fun closeMenu() {
+        if (!menuOpen) return
+        menuOpen = false
+        if (::menuBackCallback.isInitialized) menuBackCallback.isEnabled = false
+        spinGear()
+        val panel = b.menuPanel
+        panel.animate().cancel()
+        panel.animate()
+            .alpha(0f)
+            .translationY(dpi(32).toFloat())
+            .setDuration(190)
+            .setInterpolator(DecelerateInterpolator())
+            .withEndAction { if (!menuOpen) panel.visibility = View.GONE }
+            .start()
+        scheduleHideControls()
+    }
+
     // ---------- controls ----------
 
     private fun setupControls() {
         b.btnPlay.setOnClickListener { togglePlay() }
         b.btnBack.setOnClickListener { finish() }
         b.btnClose.setOnClickListener { finish() }
-        b.btnSubs.setOnClickListener { pickSubtitle() }
-        b.btnAudio.setOnClickListener { showAudioDialog() }
-        b.btnRewind.setOnClickListener { seekBy(-SEEK_STEP_MS) }
-        b.btnForward.setOnClickListener { seekBy(SEEK_STEP_MS) }
+        b.btnMenu.setOnClickListener {
+            showControls()
+            if (menuOpen) closeMenu() else openMenu()
+        }
         b.btnPrev.setOnClickListener { if (hasPrev()) playIndex(playlistIndex - 1) }
         b.btnNext.setOnClickListener { if (hasNext()) playIndex(playlistIndex + 1) }
-        b.btnSpeed.text = speedLabel(speed)
-        b.btnSpeed.setOnClickListener { showSpeedDialog() }
-        b.btnAspect.setText(aspect.labelRes)
-        b.btnAspect.setOnClickListener { cycleAspect() }
+        setupMenu()
         b.ttsChip.setOnClickListener {
             if (tts.isLoaded) toggleTts() else pickSubtitle()
         }
@@ -656,7 +951,8 @@ class PlayerActivity : AppCompatActivity() {
             }
 
             override fun onSingleTapConfirmed(e: MotionEvent): Boolean {
-                if (controlsVisible) hideControls() else showControls()
+                if (menuOpen) closeMenu()
+                else if (controlsVisible) hideControls() else showControls()
                 return true
             }
 
@@ -802,6 +1098,7 @@ class PlayerActivity : AppCompatActivity() {
 
     private fun hideControls() {
         controlsVisible = false
+        closeMenu()
         fadeOut(b.controls)
         fadeOut(b.topBar)
         updateSubtitleOffset()
@@ -810,7 +1107,7 @@ class PlayerActivity : AppCompatActivity() {
 
     private fun scheduleHideControls() {
         mainHandler.removeCallbacks(hideControlsRunnable)
-        if (controlsVisible && exo.playWhenReady) {
+        if (controlsVisible && exo.playWhenReady && !menuOpen) {
             mainHandler.postDelayed(hideControlsRunnable, 4500)
         }
     }
