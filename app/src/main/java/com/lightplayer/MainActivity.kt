@@ -7,7 +7,11 @@ import android.content.res.Configuration
 import android.graphics.Bitmap
 import android.graphics.Canvas
 import android.os.Build
+import android.content.res.ColorStateList
 import android.os.Bundle
+import android.transition.AutoTransition
+import android.transition.TransitionManager
+import android.view.View
 import android.widget.FrameLayout
 import android.widget.ImageView
 import androidx.activity.result.contract.ActivityResultContracts
@@ -19,12 +23,15 @@ import com.lightplayer.theme.ThemeManager
 import com.lightplayer.ui.music.MusicFragment
 import com.lightplayer.ui.settings.SettingsFragment
 import com.lightplayer.ui.video.VideoFragment
+import com.lightplayer.util.Prefs
 
 class MainActivity : AppCompatActivity() {
 
     private lateinit var binding: ActivityMainBinding
 
     private val tags = arrayOf("video", "music", "settings")
+    private val navIds = intArrayOf(R.id.nav_video, R.id.nav_music, R.id.nav_settings)
+    private var syncingNav = false
     private var selectedIndex = 0
     private var permissionCallback: ((Boolean) -> Unit)? = null
 
@@ -54,8 +61,24 @@ class MainActivity : AppCompatActivity() {
             )
         )
         binding.pillNav.applyPalette(palette)
-        binding.pillNav.onSelect = { index -> showTab(index, animate = true) }
+        binding.pillNav.onSelect = { index ->
+            syncClassic(index)
+            showTab(index, animate = true)
+        }
         binding.pillNav.select(selectedIndex, animate = false)
+
+        binding.classicNav.setOnItemSelectedListener { item ->
+            if (!syncingNav) {
+                val index = navIds.indexOf(item.itemId).coerceAtLeast(0)
+                binding.pillNav.select(index, animate = false)
+                showTab(index, animate = true)
+            }
+            true
+        }
+        syncClassic(selectedIndex)
+        applyClassicColors(palette)
+        applyNavStyle(animate = false)
+
         showTab(selectedIndex, animate = false)
 
         if (!hasVideoPermission(this)) {
@@ -66,6 +89,39 @@ class MainActivity : AppCompatActivity() {
     override fun onSaveInstanceState(outState: Bundle) {
         super.onSaveInstanceState(outState)
         outState.putInt(KEY_TAB, selectedIndex)
+    }
+
+    private fun syncClassic(index: Int) {
+        syncingNav = true
+        binding.classicNav.selectedItemId = navIds[index]
+        syncingNav = false
+    }
+
+    private fun applyClassicColors(p: com.lightplayer.theme.Palette) {
+        val states = arrayOf(
+            intArrayOf(android.R.attr.state_checked),
+            intArrayOf()
+        )
+        val tint = ColorStateList(states, intArrayOf(p.accent, p.text2))
+        val nav = binding.classicNav
+        nav.setBackgroundColor(p.surface)
+        nav.itemIconTintList = tint
+        nav.itemTextColor = tint
+        nav.itemActiveIndicatorColor = ColorStateList.valueOf(p.container)
+    }
+
+    /** Switches between the floating pill and the classic full-width bottom bar. */
+    fun applyNavStyle(animate: Boolean) {
+        val pill = Prefs.navStyle(this) != "classic"
+        if (animate) {
+            TransitionManager.beginDelayedTransition(binding.mainRoot, AutoTransition().setDuration(300))
+        }
+        binding.pillHost.visibility = if (pill) View.VISIBLE else View.GONE
+        binding.classicNav.visibility = if (pill) View.GONE else View.VISIBLE
+        binding.classicDivider.visibility = if (pill) View.GONE else View.VISIBLE
+        // The floating pill needs its own strip of space; the classic bar takes real layout space.
+        val reserve = if (pill) (88 * resources.displayMetrics.density).toInt() else 0
+        binding.container.setPadding(0, 0, 0, reserve)
     }
 
     /** Day/night flipped while the app is open ("System" mode): recolor everything. */
@@ -125,6 +181,7 @@ class MainActivity : AppCompatActivity() {
         ThemeManager.applyWindow(this, palette)
         ThemeManager.applyTree(root, palette)
         binding.pillNav.applyPalette(palette)
+        applyClassicColors(palette)
 
         overlay?.let { o ->
             o.animate().alpha(0f).setDuration(380).withEndAction { root.removeView(o) }.start()

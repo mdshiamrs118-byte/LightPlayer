@@ -75,6 +75,9 @@
     <string name="mode_light">Light</string>
     <string name="mode_dark">Dark</string>
     <string name="mode_black">Black</string>
+    <string name="settings_nav">Navigation style</string>
+    <string name="nav_pill">Pill</string>
+    <string name="nav_classic">Classic</string>
     <string name="settings_file_access">File access</string>
     <string name="settings_file_granted">Granted ✓</string>
     <string name="settings_file_limited">Limited: only the videos you selected are visible</string>

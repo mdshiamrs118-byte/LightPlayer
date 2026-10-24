@@ -30,7 +30,7 @@ It has no ads, no accounts and no internet requirement. Everything stays on your
 
 ### Look and feel
 - **Themes:** Mode **System / Light / Dark / Black**, six color presets (**Sunset, Forest, Ocean, Violet, Rose, Mono**) and a **custom hue slider**. Changes apply instantly, with a smooth crossfade, across the whole app
-- **Floating pill navigation:** the selected tab expands into a capsule with its label, and the bar animates its width as you switch tabs
+- **Floating pill navigation:** the selected tab expands into a capsule with its label, and the bar animates its width as you switch tabs. Prefer the traditional look? Switch to the **Classic** full-width bottom bar in Settings → Appearance → Navigation style
 - Rounded cards, soft gradient backgrounds in light mode, animated tab transitions, list entrance animations, animated folder expand/collapse, press effects and fading player controls
 - The player's seek bars and accents follow your chosen color
 
@@ -92,6 +92,7 @@ Allow access to videos when asked. If you skip this, you can still play anything
 | Find or delete generated audio | **Music** tab (long-press a track to delete it) |
 | Change voice, speed or pitch | **Settings** tab |
 | Change colors or light/dark mode | **Settings** tab → **Appearance** (mode, color preset, custom hue) |
+| Switch between the pill and classic navigation bar | **Settings** tab → **Appearance** → **Navigation style** |
 
 ### About added audio tracks
 When you add an external audio track, it **replaces** the video's own audio. Switch back by choosing one of the embedded tracks in the **♪** menu. The track follows the video when you seek or pause. If it is shorter than the video, it simply stops at its end.

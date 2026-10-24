@@ -41,6 +41,7 @@ class SettingsFragment : Fragment() {
 
     private val modeChips = ArrayList<Chip>()
     private val colorChips = ArrayList<Chip>()
+    private val navChips = ArrayList<Chip>()
 
     override fun onViewCreated(view: View, savedInstanceState: Bundle?) {
         val ctx = requireContext()
@@ -126,6 +127,16 @@ class SettingsFragment : Fragment() {
             binding.colorChips.addView(chip.view, chipParams())
         }
 
+        listOf("pill" to R.string.nav_pill, "classic" to R.string.nav_classic).forEach { (key, label) ->
+            val chip = makeChip(getString(label), key) {
+                Prefs.setNavStyle(ctx, key)
+                (activity as? MainActivity)?.applyNavStyle(animate = true)
+                refreshChips(animate = true)
+            }
+            navChips.add(chip)
+            binding.navChips.addView(chip.view, chipParams())
+        }
+
         binding.hueSeek.progress = ThemeManager.hue(ctx).toInt().coerceIn(0, 360)
         binding.hueSeek.setOnSeekBarChangeListener(object : SeekBar.OnSeekBarChangeListener {
             override fun onProgressChanged(sb: SeekBar?, progress: Int, fromUser: Boolean) {
@@ -173,6 +184,8 @@ class SettingsFragment : Fragment() {
         val preset = ThemeManager.preset(ctx)
         modeChips.forEach { styleChip(it, it.key == mode, p, animate) }
         colorChips.forEach { styleChip(it, it.key == preset, p, animate) }
+        val nav = Prefs.navStyle(ctx)
+        navChips.forEach { styleChip(it, it.key == nav, p, animate) }
     }
 
     private fun styleChip(chip: Chip, selected: Boolean, p: Palette, animate: Boolean) {

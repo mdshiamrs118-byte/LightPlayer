@@ -1,23 +1,24 @@
 package com.lightplayer.theme
 
 import android.animation.AnimatorInflater
+import android.animation.ValueAnimator
 import android.content.Context
 import android.content.res.ColorStateList
+import android.graphics.Typeface
 import android.graphics.drawable.GradientDrawable
+import android.transition.ChangeBounds
+import android.transition.Fade
+import android.transition.TransitionManager
+import android.transition.TransitionSet
 import android.util.AttributeSet
 import android.view.Gravity
 import android.view.View
 import android.view.ViewGroup
 import android.view.animation.OvershootInterpolator
-import android.widget.FrameLayout
+import android.view.animation.PathInterpolator
 import android.widget.ImageView
 import android.widget.LinearLayout
 import android.widget.TextView
-import android.transition.ChangeBounds
-import android.transition.Fade
-import android.transition.TransitionManager
-import android.transition.TransitionSet
-import android.view.animation.PathInterpolator
 import com.lightplayer.R
 
 /**
@@ -30,11 +31,13 @@ class PillNavBar @JvmOverloads constructor(
 ) : LinearLayout(context, attrs) {
 
     private class Item(
-        val root: FrameLayout,
-        val capsule: View,
+        val root: LinearLayout,
+        val capsule: GradientDrawable,
         val icon: ImageView,
         val label: TextView
-    )
+    ) {
+        var alphaAnim: ValueAnimator? = null
+    }
 
     private val items = ArrayList<Item>()
     private var selected = -1
@@ -55,8 +58,17 @@ class PillNavBar @JvmOverloads constructor(
     fun setItems(entries: List<Pair<Int, String>>) {
         removeAllViews()
         items.clear()
-        entries.forEachIndexed { index, (iconRes, title) ->
-            val capsule = View(context).apply { visibility = View.GONE }
+        entries.forEachIndexed { index, entry ->
+            val iconRes = entry.first
+            val title = entry.second
+
+            // The capsule is the tab's own background (not a child view), so it can never
+            // inflate the tab's measured width.
+            val capsule = GradientDrawable().apply {
+                shape = GradientDrawable.RECTANGLE
+                cornerRadius = dp(24f).toFloat()
+                alpha = 0
+            }
             val icon = ImageView(context).apply {
                 setImageResource(iconRes)
                 importantForAccessibility = View.IMPORTANT_FOR_ACCESSIBILITY_NO
@@ -64,34 +76,38 @@ class PillNavBar @JvmOverloads constructor(
             val label = TextView(context).apply {
                 text = title
                 textSize = 14f
-                typeface = android.graphics.Typeface.DEFAULT_BOLD
+                typeface = Typeface.DEFAULT_BOLD
                 maxLines = 1
                 visibility = View.GONE
             }
-            val content = LinearLayout(context).apply {
+            val root = LinearLayout(context).apply {
                 orientation = HORIZONTAL
                 gravity = Gravity.CENTER
-                setPadding(dp(12f), 0, dp(12f), 0)
-                addView(icon, LayoutParams(dp(24f), dp(24f)))
-                addView(label, LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT)
-                    .apply { marginStart = dp(8f) })
-            }
-            val root = FrameLayout(context).apply {
                 minimumWidth = dp(48f)
+                setPadding(dp(12f), 0, dp(12f), 0)
+                background = capsule
                 isClickable = true
                 isFocusable = true
                 contentDescription = title
                 stateListAnimator = AnimatorInflater.loadStateListAnimator(context, R.animator.press_scale)
-                addView(capsule, FrameLayout.LayoutParams(-1, -1))
-                addView(content, FrameLayout.LayoutParams(-2, -1))
+                addView(icon, LayoutParams(dp(24f), dp(24f)))
+                addView(
+                    label,
+                    LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT)
+                        .apply { marginStart = dp(8f) }
+                )
                 setOnClickListener { select(index, animate = true, notify = true) }
             }
-            addView(root, LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, dp(48f)).apply {
-                marginStart = dp(2f)
-                marginEnd = dp(2f)
-            })
+            addView(
+                root,
+                LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, dp(48f)).apply {
+                    marginStart = dp(2f)
+                    marginEnd = dp(2f)
+                }
+            )
             items.add(Item(root, capsule, icon, label))
         }
+        selected = -1
         palette?.let { applyPalette(it) }
     }
 
@@ -101,7 +117,7 @@ class PillNavBar @JvmOverloads constructor(
         selected = index
 
         if (animate) {
-            // The transition runs on the parent so the pill itself can change width.
+            // Runs on the parent so the pill itself can change width.
             val scene = (parent as? ViewGroup) ?: this
             TransitionManager.beginDelayedTransition(
                 scene,
@@ -116,7 +132,7 @@ class PillNavBar @JvmOverloads constructor(
         items.forEachIndexed { i, item ->
             val on = i == index
             item.label.visibility = if (on) View.VISIBLE else View.GONE
-            item.capsule.visibility = if (on) View.VISIBLE else View.GONE
+            setCapsule(item, on, animate)
         }
         palette?.let { applyColors(it) }
 
@@ -129,6 +145,20 @@ class PillNavBar @JvmOverloads constructor(
             }
         }
         if (notify && previous != index) onSelect?.invoke(index)
+    }
+
+    private fun setCapsule(item: Item, on: Boolean, animate: Boolean) {
+        val target = if (on) 255 else 0
+        item.alphaAnim?.cancel()
+        if (!animate) {
+            item.capsule.alpha = target
+            return
+        }
+        item.alphaAnim = ValueAnimator.ofInt(item.capsule.alpha, target).apply {
+            duration = 260
+            addUpdateListener { item.capsule.alpha = it.animatedValue as Int }
+            start()
+        }
     }
 
     fun applyPalette(p: Palette) {
@@ -144,13 +174,8 @@ class PillNavBar @JvmOverloads constructor(
     private fun applyColors(p: Palette) {
         items.forEachIndexed { i, item ->
             val on = i == selected
-            item.capsule.background = GradientDrawable().apply {
-                shape = GradientDrawable.RECTANGLE
-                cornerRadius = dp(24f).toFloat()
-                setColor(p.navCapsule)
-            }
-            val tint = if (on) p.accent else p.onAccent
-            item.icon.imageTintList = ColorStateList.valueOf(tint)
+            item.capsule.setColor(p.navCapsule)
+            item.icon.imageTintList = ColorStateList.valueOf(if (on) p.accent else p.onAccent)
             item.label.setTextColor(p.accent)
         }
     }

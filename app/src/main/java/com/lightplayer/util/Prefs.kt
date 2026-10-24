@@ -26,4 +26,8 @@ object Prefs {
 
     fun themeHue(context: Context): Float = sp(context).getFloat("theme_hue", 205f)
     fun setThemeHue(context: Context, v: Float) { sp(context).edit().putFloat("theme_hue", v).apply() }
+
+    /** "pill" (floating) or "classic" (full-width bottom bar). */
+    fun navStyle(context: Context): String = sp(context).getString("nav_style", "pill") ?: "pill"
+    fun setNavStyle(context: Context, v: String) { sp(context).edit().putString("nav_style", v).apply() }
 }
