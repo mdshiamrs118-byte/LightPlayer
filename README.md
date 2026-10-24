@@ -42,7 +42,7 @@ It has no ads, no accounts and no internet requirement. Everything stays on your
 - **Pinch to zoom:** pinch out to fill the screen, pinch in to fit. **Fit / Fill / Stretch / 16:9 / 4:3** are in the player menu
 - **Previous / next video** and **auto-play next** within the same folder (sorted naturally, so Episode 2 comes before Episode 10)
 - **Background audio:** keep listening when you leave the app or turn the screen off, with a notification to pause, resume or close
-- **Player menu:** one tidy **gear button** replaces the pile of small buttons. It spins and opens a scrollable menu that slides up with **Playback speed, Aspect ratio, Audio tracks, Subtitles and speech** and **Spoken subtitles**
+- **Player menu:** one tidy **gear button** replaces the pile of small buttons. It spins and slides up a slim rail of icons (**Playback speed, Aspect ratio, Audio tracks, Subtitles and speech, Spoken subtitles**). Tap the **>** button at the top of the rail to expand it and see every button's name, description and current value
 - **Pin your favorites:** long-press any menu item to pin it next to the gear as a quick button (speed and aspect show their current value). Pinned buttons scroll sideways, and long-pressing a pinned button unpins it
 - Full-screen immersive player, with cutout/notch-safe controls
 - **Double-tap** the left or right side to seek ∓10 seconds, **single tap** to show or hide controls
@@ -93,7 +93,8 @@ Allow access to videos when asked. If you skip this, you can still play anything
 | Show or hide controls | Tap the screen once |
 | Change brightness or volume | Swipe up/down on the left (brightness) or right (volume) side of the video |
 | Zoom to fill the screen | Pinch out (pinch in to go back), or gear menu → **Aspect ratio** (Fit / Fill / Stretch / 16:9 / 4:3) |
-| Open the player menu | Tap the **gear** button at the bottom right of the player |
+| Open the player menu | Tap the **gear** button at the bottom right of the player (a slim icon rail slides up) |
+| See button names and descriptions | Tap the **>** button at the top of the menu rail |
 | Pin a menu item next to the gear | Long-press the item in the menu (long-press a pinned button to unpin it) |
 | Change playback speed | Gear menu → **Playback speed** |
 | Go to the previous or next video | Use the ⏮ ⏭ buttons next to play; the next video also starts automatically |

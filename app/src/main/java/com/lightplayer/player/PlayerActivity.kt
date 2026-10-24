@@ -1,6 +1,15 @@
 package com.lightplayer.player
 
 import android.graphics.Matrix
+import android.animation.ArgbEvaluator
+import android.animation.ValueAnimator
+import android.text.TextUtils
+import android.transition.AutoTransition
+import android.transition.ChangeBounds
+import android.transition.Fade
+import android.transition.TransitionManager
+import android.transition.TransitionSet
+import android.view.animation.PathInterpolator
 import android.content.res.ColorStateList
 import android.graphics.Color
 import android.view.Gravity
@@ -600,11 +609,15 @@ class PlayerActivity : AppCompatActivity() {
 
     // ---------- player menu (gear button) ----------
 
-    /** One entry in the gear menu. It can also be pinned next to the gear as a quick button. */
+    /**
+     * One entry in the gear menu. To add a button to the player in the future, add one of these
+     * to the list in [setupMenu]. It can also be pinned next to the gear as a quick button.
+     */
     private class PlayerAction(
         val id: String,
         val iconRes: Int,
         val labelRes: Int,
+        val descRes: Int,
         val value: (() -> String)? = null,
         /** Pinned as a small text pill showing [value] instead of an icon. */
         val valueAsPill: Boolean = false,
@@ -613,32 +626,46 @@ class PlayerActivity : AppCompatActivity() {
 
     private var actions: List<PlayerAction> = emptyList()
     private var menuOpen = false
-    private val pinnedValueViews = ArrayList<Pair<PlayerAction, TextView>>()
+    private var menuExpanded = false
     private lateinit var menuBackCallback: OnBackPressedCallback
+
+    // Views that only exist while the menu is expanded (names, values, hint).
+    private val menuDetailViews = ArrayList<View>()
+    private val menuBadges = LinkedHashMap<String, TextView>()
+    private val menuIcons = LinkedHashMap<String, ImageView>()
+
+    private val pinnedViews = LinkedHashMap<String, View>()
+    private val pinnedValueViews = ArrayList<Pair<PlayerAction, TextView>>()
+
+    private val menuEase = PathInterpolator(0.4f, 0f, 0.2f, 1f)
 
     private fun dpi(v: Int): Int = (v * resources.displayMetrics.density + 0.5f).toInt()
 
-    /** To add a button to the menu in the future, add one PlayerAction here. */
     private fun setupMenu() {
         actions = listOf(
             PlayerAction(
-                id = "speed", iconRes = R.drawable.ic_speed_fwd, labelRes = R.string.player_speed_title,
+                id = "speed", iconRes = R.drawable.ic_speed_fwd,
+                labelRes = R.string.player_speed_title, descRes = R.string.menu_speed_desc,
                 value = { speedLabel(speed) }, valueAsPill = true, run = { showSpeedDialog() }
             ),
             PlayerAction(
-                id = "aspect", iconRes = R.drawable.ic_aspect, labelRes = R.string.menu_aspect,
+                id = "aspect", iconRes = R.drawable.ic_aspect,
+                labelRes = R.string.menu_aspect, descRes = R.string.menu_aspect_desc,
                 value = { getString(aspect.labelRes) }, valueAsPill = true, run = { cycleAspect() }
             ),
             PlayerAction(
-                id = "audio", iconRes = R.drawable.ic_music, labelRes = R.string.menu_audio,
+                id = "audio", iconRes = R.drawable.ic_music,
+                labelRes = R.string.menu_audio, descRes = R.string.menu_audio_desc,
                 run = { showAudioDialog() }
             ),
             PlayerAction(
-                id = "subtitles", iconRes = R.drawable.ic_subtitles, labelRes = R.string.menu_subtitles,
+                id = "subtitles", iconRes = R.drawable.ic_subtitles,
+                labelRes = R.string.menu_subtitles, descRes = R.string.menu_subtitles_desc,
                 run = { pickSubtitle() }
             ),
             PlayerAction(
-                id = "tts", iconRes = R.drawable.ic_tts, labelRes = R.string.menu_tts,
+                id = "tts", iconRes = R.drawable.ic_tts,
+                labelRes = R.string.menu_tts, descRes = R.string.menu_tts_desc,
                 value = { getString(if (tts.isLoaded && tts.enabled) R.string.menu_on else R.string.menu_off) },
                 run = { if (tts.isLoaded) toggleTts() else pickSubtitle() }
             )
@@ -646,8 +673,12 @@ class PlayerActivity : AppCompatActivity() {
 
         val p = ThemeManager.palette(this, forceDark = true)
         val surface = (p.surface and 0x00FFFFFF) or 0xF2000000.toInt()
-        b.menuPanel.background = ThemeManager.rounded(this, surface, 20f, p.stroke)
+        b.menuPanel.background = ThemeManager.rounded(this, surface, 24f, p.stroke)
         b.menuPanel.clipToOutline = true
+
+        val toggle = View.OnClickListener { setMenuExpanded(!menuExpanded, animate = true) }
+        b.btnExpand.setOnClickListener(toggle)
+        b.menuHeader.setOnClickListener(toggle)
 
         menuBackCallback = object : OnBackPressedCallback(false) {
             override fun handleOnBackPressed() { closeMenu() }
@@ -665,62 +696,86 @@ class PlayerActivity : AppCompatActivity() {
         return ContextCompat.getDrawable(this, tv.resourceId)
     }
 
+    private fun lp(w: Int, h: Int) = LinearLayout.LayoutParams(w, h)
+
+    /**
+     * Rows keep their icon on the right edge, so when the panel grows leftwards the icons
+     * stay put and the names slide out beside them.
+     */
     private fun buildMenuRows() {
         val list = b.menuList
         list.removeAllViews()
+        menuDetailViews.clear()
+        menuBadges.clear()
+        menuIcons.clear()
+
         val pinned = Prefs.pinnedActions(this)
+        val accent = ThemeManager.palette(this, forceDark = true).accent
+        val detailVisibility = if (menuExpanded) View.VISIBLE else View.GONE
+        val wrap = ViewGroup.LayoutParams.WRAP_CONTENT
 
         actions.forEach { action ->
+            val isPinned = action.id in pinned
             val row = LinearLayout(this).apply {
                 orientation = LinearLayout.HORIZONTAL
                 gravity = Gravity.CENTER_VERTICAL
                 minimumHeight = dpi(52)
-                setPadding(dpi(16), 0, dpi(14), 0)
+                setPadding(dpi(16), dpi(8), dpi(16), dpi(8))
                 background = selectableBackground(borderless = false)
                 isClickable = true
                 isFocusable = true
+                contentDescription = getString(action.labelRes)
 
-                addView(
-                    ImageView(context).apply {
-                        setImageResource(action.iconRes)
-                        imageTintList = ColorStateList.valueOf(Color.WHITE)
-                        importantForAccessibility = View.IMPORTANT_FOR_ACCESSIBILITY_NO
-                    },
-                    LinearLayout.LayoutParams(dpi(22), dpi(22))
-                )
-                addView(
-                    TextView(context).apply {
+                val texts = LinearLayout(context).apply {
+                    orientation = LinearLayout.VERTICAL
+                    visibility = detailVisibility
+                    addView(TextView(context).apply {
                         setText(action.labelRes)
                         setTextColor(Color.WHITE)
                         textSize = 15f
                         maxLines = 1
-                    },
-                    LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f).apply { marginStart = dpi(14) }
-                )
+                        ellipsize = TextUtils.TruncateAt.END
+                    })
+                    addView(TextView(context).apply {
+                        setText(action.descRes)
+                        setTextColor(0xFF8D929B.toInt())
+                        textSize = 11f
+                        maxLines = 1
+                        ellipsize = TextUtils.TruncateAt.END
+                    })
+                }
+                menuDetailViews.add(texts)
+                addView(texts, lp(0, wrap).also { it.weight = 1f; it.marginEnd = dpi(10) })
+
                 action.value?.let { read ->
-                    addView(
-                        TextView(context).apply {
-                            text = read()
-                            setTextColor(0xFFB8BCC4.toInt())
-                            textSize = 13f
-                            maxLines = 1
-                        },
-                        LinearLayout.LayoutParams(
-                            ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT
-                        ).apply { marginStart = dpi(8) }
-                    )
+                    val value = TextView(context).apply {
+                        text = read()
+                        setTextColor(0xFFB8BCC4.toInt())
+                        textSize = 13f
+                        maxLines = 1
+                        visibility = detailVisibility
+                    }
+                    menuDetailViews.add(value)
+                    addView(value, lp(wrap, wrap).also { it.marginEnd = dpi(10) })
                 }
-                if (action.id in pinned) {
-                    addView(
-                        TextView(context).apply {
-                            text = "\uD83D\uDCCC"
-                            textSize = 12f
-                        },
-                        LinearLayout.LayoutParams(
-                            ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT
-                        ).apply { marginStart = dpi(8) }
-                    )
+
+                val badge = TextView(context).apply {
+                    text = "\uD83D\uDCCC"
+                    textSize = 12f
+                    visibility = if (menuExpanded && isPinned) View.VISIBLE else View.GONE
                 }
+                menuBadges[action.id] = badge
+                addView(badge, lp(wrap, wrap).also { it.marginEnd = dpi(8) })
+
+                val icon = ImageView(context).apply {
+                    setImageResource(action.iconRes)
+                    val tint = if (isPinned) accent else Color.WHITE
+                    imageTintList = ColorStateList.valueOf(tint)
+                    tag = tint
+                    importantForAccessibility = View.IMPORTANT_FOR_ACCESSIBILITY_NO
+                }
+                menuIcons[action.id] = icon
+                addView(icon, lp(dpi(24), dpi(24)))
 
                 setOnClickListener {
                     closeMenu()
@@ -732,89 +787,174 @@ class PlayerActivity : AppCompatActivity() {
                     true
                 }
             }
-            list.addView(
-                row,
-                LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT)
-            )
+            list.addView(row, lp(ViewGroup.LayoutParams.MATCH_PARENT, wrap))
         }
 
-        list.addView(
-            TextView(this).apply {
-                setText(R.string.menu_hint)
-                setTextColor(0xFF8D929B.toInt())
-                textSize = 11f
-                setPadding(dpi(16), dpi(8), dpi(16), dpi(8))
-            },
-            LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT)
-        )
+        val hint = TextView(this).apply {
+            setText(R.string.menu_hint)
+            setTextColor(0xFF8D929B.toInt())
+            textSize = 11f
+            setPadding(dpi(16), dpi(8), dpi(16), dpi(8))
+            visibility = detailVisibility
+        }
+        menuDetailViews.add(hint)
+        list.addView(hint, lp(ViewGroup.LayoutParams.MATCH_PARENT, wrap))
+    }
+
+    /** Expands the rail into the full menu with names, or folds it back to icons. */
+    private fun setMenuExpanded(expanded: Boolean, animate: Boolean) {
+        menuExpanded = expanded
+        if (animate) {
+            TransitionManager.beginDelayedTransition(
+                b.playerRoot,
+                TransitionSet().apply {
+                    addTransition(ChangeBounds())
+                    addTransition(Fade())
+                    duration = 300
+                    interpolator = menuEase
+                }
+            )
+        }
+        val params = b.menuPanel.layoutParams
+        params.width = dpi(if (expanded) 276 else 56)
+        b.menuPanel.layoutParams = params
+
+        b.menuTitle.visibility = if (expanded) View.VISIBLE else View.GONE
+        menuDetailViews.forEach { it.visibility = if (expanded) View.VISIBLE else View.GONE }
+        val pinned = Prefs.pinnedActions(this)
+        menuBadges.forEach { (id, badge) ->
+            badge.visibility = if (expanded && id in pinned) View.VISIBLE else View.GONE
+        }
+
+        val target = if (expanded) 180f else 0f
+        b.btnExpand.animate().cancel()
+        if (animate) {
+            b.btnExpand.animate().rotation(target).setDuration(300).setInterpolator(menuEase).start()
+        } else {
+            b.btnExpand.rotation = target
+        }
     }
 
     private fun togglePin(action: PlayerAction) {
         val ids = Prefs.pinnedActions(this).toMutableList()
         val label = getString(action.labelRes)
+        val nowPinned: Boolean
         if (ids.remove(action.id)) {
+            nowPinned = false
+            Prefs.setPinnedActions(this, ids)
+            removePinned(action.id)
             showHud(getString(R.string.hud_unpinned_fmt, label))
         } else {
+            nowPinned = true
             ids.add(action.id)
+            Prefs.setPinnedActions(this, ids)
+            addPinned(action)
             showHud(getString(R.string.hud_pinned_fmt, label))
         }
-        Prefs.setPinnedActions(this, ids)
-        refreshPinned()
-        if (menuOpen) buildMenuRows()
+
+        // Update the open menu in place (no rebuild, so nothing flickers).
+        if (menuOpen) {
+            TransitionManager.beginDelayedTransition(b.menuList, AutoTransition().setDuration(220))
+            menuBadges[action.id]?.visibility =
+                if (menuExpanded && nowPinned) View.VISIBLE else View.GONE
+            menuIcons[action.id]?.let { icon ->
+                val accent = ThemeManager.palette(this, forceDark = true).accent
+                tintIcon(icon, if (nowPinned) accent else Color.WHITE)
+            }
+        }
     }
 
-    /** Rebuilds the row of pinned quick buttons beside the gear. */
-    private fun refreshPinned() {
-        val strip = b.pinnedStrip
-        strip.removeAllViews()
-        pinnedValueViews.clear()
+    private fun tintIcon(icon: ImageView, to: Int) {
+        val from = (icon.tag as? Int) ?: Color.WHITE
+        icon.tag = to
+        ValueAnimator.ofObject(ArgbEvaluator(), from, to).apply {
+            duration = 250
+            addUpdateListener { icon.imageTintList = ColorStateList.valueOf(it.animatedValue as Int) }
+            start()
+        }
+    }
 
+    // ---------- pinned quick buttons ----------
+
+    private fun pinnedParams(action: PlayerAction): LinearLayout.LayoutParams = lp(
+        if (action.valueAsPill) ViewGroup.LayoutParams.WRAP_CONTENT else dpi(40),
+        if (action.valueAsPill) dpi(32) else dpi(40)
+    ).also { it.marginStart = dpi(4) }
+
+    private fun createPinnedView(action: PlayerAction): View {
+        val view: View
+        if (action.valueAsPill && action.value != null) {
+            val pill = TextView(this).apply {
+                text = action.value.invoke()
+                textSize = 12f
+                typeface = Typeface.DEFAULT_BOLD
+                setTextColor(Color.WHITE)
+                gravity = Gravity.CENTER
+                minWidth = dpi(44)
+                setPadding(dpi(12), 0, dpi(12), 0)
+                background = ContextCompat.getDrawable(this@PlayerActivity, R.drawable.bg_pill)
+            }
+            pinnedValueViews.add(action to pill)
+            view = pill
+        } else {
+            view = ImageButton(this).apply {
+                setImageResource(action.iconRes)
+                imageTintList = ColorStateList.valueOf(Color.WHITE)
+                background = selectableBackground(borderless = true)
+            }
+        }
+        view.contentDescription = getString(action.labelRes)
+        view.setOnClickListener {
+            closeMenu()
+            action.run()
+        }
+        view.setOnLongClickListener {
+            view.performHapticFeedback(HapticFeedbackConstants.LONG_PRESS)
+            togglePin(action)   // long-press a pinned button to unpin it
+            true
+        }
+        return view
+    }
+
+    /** Full rebuild, used once at start-up. Later changes add or remove single buttons. */
+    private fun refreshPinned() {
+        b.pinnedStrip.removeAllViews()
+        pinnedViews.clear()
+        pinnedValueViews.clear()
         Prefs.pinnedActions(this).forEach { id ->
             val action = actions.firstOrNull { it.id == id } ?: return@forEach
-            val view: View
-            if (action.valueAsPill && action.value != null) {
-                val pill = TextView(this).apply {
-                    text = action.value.invoke()
-                    textSize = 12f
-                    typeface = Typeface.DEFAULT_BOLD
-                    setTextColor(Color.WHITE)
-                    gravity = Gravity.CENTER
-                    minWidth = dpi(44)
-                    setPadding(dpi(12), 0, dpi(12), 0)
-                    background = ContextCompat.getDrawable(this@PlayerActivity, R.drawable.bg_pill)
-                }
-                pinnedValueViews.add(action to pill)
-                view = pill
-            } else {
-                view = ImageButton(this).apply {
-                    setImageResource(action.iconRes)
-                    imageTintList = ColorStateList.valueOf(Color.WHITE)
-                    background = selectableBackground(borderless = true)
-                }
-            }
-            view.contentDescription = getString(action.labelRes)
-            view.setOnClickListener {
-                closeMenu()
-                action.run()
-            }
-            view.setOnLongClickListener {
-                view.performHapticFeedback(HapticFeedbackConstants.LONG_PRESS)
-                togglePin(action)   // long-press a pinned button to unpin it
-                true
-            }
-            strip.addView(
-                view,
-                LinearLayout.LayoutParams(
-                    if (action.valueAsPill) ViewGroup.LayoutParams.WRAP_CONTENT else dpi(40),
-                    if (action.valueAsPill) dpi(32) else dpi(40)
-                ).apply { marginStart = dpi(4) }
-            )
+            val view = createPinnedView(action)
+            pinnedViews[id] = view
+            b.pinnedStrip.addView(view, pinnedParams(action))
         }
+    }
+
+    private fun addPinned(action: PlayerAction) {
+        if (pinnedViews.containsKey(action.id)) return
+        TransitionManager.beginDelayedTransition(b.pinnedStrip, AutoTransition().setDuration(240))
+        val view = createPinnedView(action)
+        pinnedViews[action.id] = view
+        b.pinnedStrip.addView(view, pinnedParams(action))
+        view.scaleX = 0f
+        view.scaleY = 0f
+        view.animate().scaleX(1f).scaleY(1f).setDuration(300)
+            .setInterpolator(OvershootInterpolator(2f)).start()
+        // Make the new button visible if the strip is already scrolled.
+        b.pinnedScroll.post { b.pinnedScroll.fullScroll(View.FOCUS_RIGHT) }
+    }
+
+    private fun removePinned(id: String) {
+        val view = pinnedViews.remove(id) ?: return
+        pinnedValueViews.removeAll { it.second === view }
+        TransitionManager.beginDelayedTransition(b.pinnedStrip, AutoTransition().setDuration(220))
+        b.pinnedStrip.removeView(view)
     }
 
     private fun updatePinnedValues() {
         pinnedValueViews.forEach { (action, view) -> view.text = action.value?.invoke() ?: "" }
     }
+
+    // ---------- opening and closing ----------
 
     private fun spinGear() {
         b.btnMenu.animate().cancel()
@@ -830,13 +970,16 @@ class PlayerActivity : AppCompatActivity() {
         menuOpen = true
         menuBackCallback.isEnabled = true
         mainHandler.removeCallbacks(hideControlsRunnable)
+
+        // Always opens as the slim icon rail.
+        setMenuExpanded(false, animate = false)
         buildMenuRows()
         spinGear()
 
         val panel = b.menuPanel
-        val lp = panel.layoutParams as FrameLayout.LayoutParams
-        lp.bottomMargin = b.controls.height + dpi(8)
-        panel.layoutParams = lp
+        val params = panel.layoutParams as FrameLayout.LayoutParams
+        params.bottomMargin = b.controls.height + dpi(8)
+        panel.layoutParams = params
 
         panel.animate().cancel()
         panel.visibility = View.VISIBLE
@@ -849,7 +992,7 @@ class PlayerActivity : AppCompatActivity() {
             .setInterpolator(DecelerateInterpolator(1.8f))
             .start()
 
-        // Rows rise in one after another.
+        // Icons rise in one after another.
         for (i in 0 until b.menuList.childCount) {
             val row = b.menuList.getChildAt(i)
             row.alpha = 0f

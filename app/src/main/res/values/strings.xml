@@ -112,6 +112,13 @@
     <string name="menu_hint">Long-press an item to pin it next to the menu button. Long-press a pinned button to unpin it.</string>
     <string name="hud_pinned_fmt">Pinned: %1$s</string>
     <string name="hud_unpinned_fmt">Unpinned: %1$s</string>
+    <string name="menu_title">Player menu</string>
+    <string name="cd_menu_expand">Show or hide button names</string>
+    <string name="menu_speed_desc">From 0.5x to 2x</string>
+    <string name="menu_aspect_desc">Fit, fill, stretch, 16:9, 4:3</string>
+    <string name="menu_audio_desc">Switch tracks or add your own</string>
+    <string name="menu_subtitles_desc">Show subtitles and make speech</string>
+    <string name="menu_tts_desc">Turn the spoken track on or off</string>
     <string name="settings_nav">Navigation style</string>
     <string name="nav_pill">Pill</string>
     <string name="nav_classic">Classic</string>
