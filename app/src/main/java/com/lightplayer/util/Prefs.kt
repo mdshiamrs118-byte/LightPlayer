@@ -63,4 +63,44 @@ object Prefs {
     fun setPipGeometry(context: Context, width: Int, x: Int, y: Int) {
         sp(context).edit().putInt("pip_width", width).putInt("pip_x", x).putInt("pip_y", y).apply()
     }
+
+    // ---- library ----
+    fun videoSort(context: Context): String = sp(context).getString("video_sort", "NAME") ?: "NAME"
+    fun setVideoSort(context: Context, v: String) { sp(context).edit().putString("video_sort", v).apply() }
+
+    // ---- subtitles ----
+    fun subtitleSize(context: Context): Float = sp(context).getFloat("sub_size", 17f)
+    fun setSubtitleSize(context: Context, v: Float) { sp(context).edit().putFloat("sub_size", v).apply() }
+
+    fun subtitleColor(context: Context): Int = sp(context).getInt("sub_color", 0xFFFFFFFF.toInt())
+    fun setSubtitleColor(context: Context, v: Int) { sp(context).edit().putInt("sub_color", v).apply() }
+
+    /** 0 = none, 1 = dim, 2 = solid black. */
+    fun subtitleBackground(context: Context): Int = sp(context).getInt("sub_bg", 1)
+    fun setSubtitleBackground(context: Context, v: Int) { sp(context).edit().putInt("sub_bg", v).apply() }
+
+    fun autoSubtitles(context: Context): Boolean = sp(context).getBoolean("auto_subtitles", true)
+    fun setAutoSubtitles(context: Context, v: Boolean) { sp(context).edit().putBoolean("auto_subtitles", v).apply() }
+
+    /** Subtitle sync offset (ms) remembered per video. */
+    fun subtitleOffset(context: Context, videoKey: String): Long = sp(context).getLong("suboff:$videoKey", 0L)
+    fun setSubtitleOffset(context: Context, videoKey: String, ms: Long) {
+        val e = sp(context).edit()
+        if (ms == 0L) e.remove("suboff:$videoKey") else e.putLong("suboff:$videoKey", ms)
+        e.apply()
+    }
+
+    /** Folders (document-tree URIs) the user chose to look for subtitle files in. */
+    fun subtitleFolders(context: Context): Set<String> =
+        sp(context).getStringSet("subtitle_folders", emptySet())?.toSet() ?: emptySet()
+    fun setSubtitleFolders(context: Context, v: Set<String>) {
+        sp(context).edit().putStringSet("subtitle_folders", HashSet(v)).apply()
+    }
+
+    // ---- favorites ----
+    fun favorites(context: Context): Set<String> =
+        sp(context).getStringSet("favorites", emptySet())?.toSet() ?: emptySet()
+    fun setFavorites(context: Context, v: Set<String>) {
+        sp(context).edit().putStringSet("favorites", HashSet(v)).apply()
+    }
 }

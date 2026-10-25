@@ -38,6 +38,9 @@ import android.view.ScaleGestureDetector
 import androidx.core.content.ContextCompat
 import com.lightplayer.util.PositionStore
 import com.lightplayer.util.Prefs
+import com.lightplayer.util.SubtitleStyle
+import com.lightplayer.util.SubtitleFolders
+import androidx.media3.common.text.CueGroup
 import kotlin.math.abs
 import kotlin.math.roundToInt
 import android.net.Uri
@@ -84,6 +87,7 @@ import com.lightplayer.subtitle.SubtitleTrack
 import com.lightplayer.tts.TtsGenerator
 import com.lightplayer.tts.TtsCache
 import com.lightplayer.tts.TtsIndex
+import com.lightplayer.util.DurationCache
 import com.lightplayer.util.Formats
 import java.util.Locale
 
@@ -149,6 +153,17 @@ class PlayerActivity : AppCompatActivity() {
     private var pendingEmbeddedIndex = -1
     private var ttsUri: Uri? = null
 
+    private enum class SubSource { NONE, EXTERNAL, EMBEDDED }
+    private var subSource = SubSource.NONE
+    private var externalSubName: String? = null
+    private var subtitleOffsetMs = 0L
+    private var embeddedSubs: List<Pair<Tracks.Group, Int>> = emptyList()
+
+    private var repeatOne = false
+    private var sleepAtEnd = false
+    private var sleepEndsAt = 0L
+    private val sleepRunnable = Runnable { if (!released) sleepNow() }
+
     private var speed = 1f
     private val speeds = floatArrayOf(0.5f, 0.75f, 1f, 1.25f, 1.5f, 1.75f, 2f)
     private var aspect = Aspect.FIT
@@ -205,7 +220,7 @@ class PlayerActivity : AppCompatActivity() {
                 }
                 updateSubtitle(pos)
                 val playing = exo.isPlaying
-                tts.sync(pos.toLong(), playing)
+                syncTts(pos.toLong(), playing)
                 extra.sync(pos.toLong(), playing)
                 val now = SystemClock.elapsedRealtime()
                 if (playing && now - lastSaveAt > 5_000L) {
@@ -239,12 +254,14 @@ class PlayerActivity : AppCompatActivity() {
         declaredDuration = intent.getLongExtra(EXTRA_DURATION, 0L).toInt()
         speed = Prefs.playbackSpeed(this)
         audioManager = getSystemService(Context.AUDIO_SERVICE) as AudioManager
+        subtitleOffsetMs = Prefs.subtitleOffset(this, videoUri.toString())
 
         window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
         enterImmersive()
         applyCutoutInsets()
 
         applyAccent()
+        SubtitleStyle.apply(this, b.subtitleText)
         b.videoTitle.text = videoTitle
         b.buffering.visibility = View.GONE
         b.ttsChip.alpha = 0.4f
@@ -308,6 +325,10 @@ class PlayerActivity : AppCompatActivity() {
         exo.setVideoTextureView(b.videoSurface)
         exo.setPlaybackSpeed(speed)
         applyVolumes()
+        // Embedded subtitles stay off until the user picks one.
+        exo.trackSelectionParameters = exo.trackSelectionParameters.buildUpon()
+            .setTrackTypeDisabled(C.TRACK_TYPE_TEXT, true)
+            .build()
 
         exo.addListener(object : Player.Listener {
             override fun onPlaybackStateChanged(state: Int) {
@@ -320,6 +341,7 @@ class PlayerActivity : AppCompatActivity() {
                     if (dur > 0) {
                         b.seekBar.max = dur
                         if (declaredDuration <= 0) declaredDuration = dur
+                        videoUri?.let { DurationCache.put(this@PlayerActivity, it.toString(), dur.toLong()) }
                     }
                     scheduleHideControls()
                 }
@@ -347,8 +369,23 @@ class PlayerActivity : AppCompatActivity() {
                 }
             }
 
+            override fun onCues(cueGroup: CueGroup) {
+                if (released || subSource != SubSource.EMBEDDED) return
+                val text = cueGroup.cues.mapNotNull { it.text?.toString() }
+                    .filter { it.isNotBlank() }
+                    .joinToString("\n")
+                if (text.isEmpty()) {
+                    b.subtitleText.visibility = View.INVISIBLE
+                } else {
+                    b.subtitleText.text = text
+                    b.subtitleText.visibility = View.VISIBLE
+                    updateSubtitleOffset()
+                }
+            }
+
             override fun onTracksChanged(tracks: Tracks) {
                 if (released) return
+                embeddedSubs = collectSubtitleTracks(tracks)
                 embeddedAudio = collectAudioTracks(tracks)
                 if (pendingEmbeddedIndex in embeddedAudio.indices) {
                     val wanted = embeddedAudio[pendingEmbeddedIndex]
@@ -387,6 +424,7 @@ class PlayerActivity : AppCompatActivity() {
         if (startMs > 0L) {
             Toast.makeText(this, getString(R.string.player_resumed_fmt, Formats.time(startMs)), Toast.LENGTH_SHORT).show()
         }
+        autoLoadSubtitle(token)
         Thread {
             val layout = try { TsCleaner.analyze(appCtx, uri) } catch (_: Throwable) { null }
             mainHandler.post {
@@ -485,6 +523,14 @@ class PlayerActivity : AppCompatActivity() {
         track = null
         lastShownCue = null
         b.subtitleText.visibility = View.INVISIBLE
+        subSource = SubSource.NONE
+        externalSubName = null
+        embeddedSubs = emptyList()
+        subtitleOffsetMs = Prefs.subtitleOffset(this, uri.toString())
+        exo.trackSelectionParameters = exo.trackSelectionParameters.buildUpon()
+            .clearOverridesOfType(C.TRACK_TYPE_TEXT)
+            .setTrackTypeDisabled(C.TRACK_TYPE_TEXT, true)
+            .build()
         tts.release()
         tts.enabled = false
         extra.release()
@@ -512,6 +558,12 @@ class PlayerActivity : AppCompatActivity() {
 
     private fun onVideoEnded() {
         videoUri?.let { PositionStore.clear(this, it.toString()) }
+        if (sleepAtEnd) {
+            sleepAtEnd = false
+            showHud(getString(R.string.sleep_done))
+            showControls()
+            return
+        }
         if (Prefs.autoNext(this) && hasNext()) {
             Toast.makeText(
                 this,
@@ -631,6 +683,200 @@ class PlayerActivity : AppCompatActivity() {
             )
         } catch (_: Throwable) {
         }
+    }
+
+    // ---------- subtitles: source, tracks, sync ----------
+
+    private fun setSubSource(src: SubSource) {
+        subSource = src
+        lastShownCue = null
+        b.subtitleText.visibility = View.INVISIBLE
+        exo.trackSelectionParameters = exo.trackSelectionParameters.buildUpon()
+            .setTrackTypeDisabled(C.TRACK_TYPE_TEXT, src != SubSource.EMBEDDED)
+            .build()
+        if (src == SubSource.EXTERNAL) updateSubtitle(if (ready) exo.currentPosition.toInt() else 0)
+        updatePinnedValues()
+    }
+
+    private fun subtitleSourceLabel(): String = getString(
+        when (subSource) {
+            SubSource.NONE -> R.string.sub_off
+            SubSource.EXTERNAL -> R.string.menu_sub_file
+            SubSource.EMBEDDED -> R.string.menu_sub_embedded
+        }
+    )
+
+    private fun collectSubtitleTracks(tracks: Tracks): List<Pair<Tracks.Group, Int>> {
+        val out = ArrayList<Pair<Tracks.Group, Int>>()
+        for (group in tracks.groups) {
+            if (group.type != C.TRACK_TYPE_TEXT) continue
+            for (i in 0 until group.length) {
+                if (group.isTrackSupported(i)) out.add(group to i)
+            }
+        }
+        return out
+    }
+
+    private fun subtitleLabel(f: Format, number: Int): String {
+        val parts = ArrayList<String>()
+        val lang = f.language
+            ?.takeIf { it.isNotBlank() && it != "und" }
+            ?.let { Locale.forLanguageTag(it).displayLanguage }
+            ?.takeIf { it.isNotBlank() }
+        val label = f.label?.takeIf { it.isNotBlank() }
+        if (label != null) parts.add(label)
+        if (lang != null && (label == null || !label.contains(lang, ignoreCase = true))) parts.add(lang)
+        val title = getString(R.string.sub_embedded_fmt, number)
+        return if (parts.isEmpty()) title else "$title · ${parts.joinToString(" · ")}"
+    }
+
+    private fun showSubtitleTracksDialog() {
+        showControls()
+        val labels = ArrayList<String>()
+        labels.add(getString(R.string.sub_off))
+        embeddedSubs.forEachIndexed { i, entry ->
+            labels.add(subtitleLabel(entry.first.getTrackFormat(entry.second), i + 1))
+        }
+        if (track != null) labels.add(getString(R.string.sub_loaded_fmt, externalSubName ?: ""))
+
+        val checked = when (subSource) {
+            SubSource.NONE -> 0
+            SubSource.EMBEDDED ->
+                1 + embeddedSubs.indexOfFirst { it.first.isTrackSelected(it.second) }.coerceAtLeast(0)
+            SubSource.EXTERNAL -> labels.size - 1
+        }
+        ThemeManager.themed(
+            ThemeManager.dialogBuilder(this, forceDark = true)
+                .setTitle(R.string.sub_tracks_title)
+                .setSingleChoiceItems(labels.toTypedArray(), checked) { dialog, which ->
+                    when {
+                        which == 0 -> setSubSource(SubSource.NONE)
+                        which <= embeddedSubs.size -> selectEmbeddedSubtitle(embeddedSubs[which - 1])
+                        else -> setSubSource(SubSource.EXTERNAL)
+                    }
+                    dialog.dismiss()
+                }
+                .setNeutralButton(R.string.sub_load_file) { _, _ -> pickSubtitle() }
+                .setNegativeButton(R.string.action_cancel, null)
+                .create(),
+            forceDark = true
+        ).show()
+    }
+
+    private fun selectEmbeddedSubtitle(entry: Pair<Tracks.Group, Int>) {
+        setSubSource(SubSource.EMBEDDED)
+        exo.trackSelectionParameters = exo.trackSelectionParameters.buildUpon()
+            .setTrackTypeDisabled(C.TRACK_TYPE_TEXT, false)
+            .setOverrideForType(TrackSelectionOverride(entry.first.mediaTrackGroup, entry.second))
+            .build()
+    }
+
+    /** Where the spoken track should be, given the subtitle sync offset. */
+    private fun ttsTarget(videoPos: Long): Long = (videoPos - subtitleOffsetMs).coerceAtLeast(0L)
+
+    private fun syncTts(videoPos: Long, playing: Boolean) {
+        val t = videoPos - subtitleOffsetMs
+        if (t < 0L) tts.sync(0L, false) else tts.sync(t, playing)
+    }
+
+    private fun setSubtitleOffset(ms: Long) {
+        subtitleOffsetMs = ms
+        videoUri?.let { Prefs.setSubtitleOffset(this, it.toString(), ms) }
+        lastShownCue = null
+        if (ready) {
+            updateSubtitle(exo.currentPosition.toInt())
+            if (tts.isLoaded) {
+                tts.forceTo(ttsTarget(exo.currentPosition), exo.isPlaying && exo.currentPosition - ms >= 0L)
+            }
+        }
+        updatePinnedValues()
+    }
+
+    /** Looks in the user's subtitle folders for a file that matches this video. */
+    private fun autoLoadSubtitle(token: Int) {
+        if (!Prefs.autoSubtitles(this) || track != null) return
+        val name = videoTitle
+        val appCtx = applicationContext
+        Thread {
+            val found = try { SubtitleFolders.findFor(appCtx, name) } catch (_: Throwable) { null }
+            if (found != null) {
+                mainHandler.post {
+                    if (released || token != loadToken || track != null) return@post
+                    onSubtitlePicked(found.first, withSpeech = false, quiet = true)
+                }
+            }
+        }.apply { isDaemon = true; start() }
+    }
+
+    // ---------- repeat and sleep timer ----------
+
+    private fun toggleRepeat() {
+        repeatOne = !repeatOne
+        exo.repeatMode = if (repeatOne) Player.REPEAT_MODE_ONE else Player.REPEAT_MODE_OFF
+        showHud(
+            getString(R.string.menu_repeat) + ": " +
+                getString(if (repeatOne) R.string.menu_on else R.string.menu_off)
+        )
+    }
+
+    private fun sleepLabel(): String {
+        if (sleepAtEnd) return getString(R.string.sleep_end)
+        val left = sleepEndsAt - SystemClock.elapsedRealtime()
+        return if (sleepEndsAt > 0L && left > 0L) {
+            getString(R.string.sleep_minutes_fmt, ((left + 59_999L) / 60_000L).toInt())
+        } else {
+            getString(R.string.sleep_off)
+        }
+    }
+
+    private fun showSleepDialog() {
+        showControls()
+        val options = intArrayOf(0, 10, 15, 30, 45, 60, -1)
+        val labels = options.map {
+            when (it) {
+                0 -> getString(R.string.sleep_off)
+                -1 -> getString(R.string.sleep_end)
+                else -> getString(R.string.sleep_minutes_fmt, it)
+            }
+        }.toTypedArray()
+        ThemeManager.themed(
+            ThemeManager.dialogBuilder(this, forceDark = true)
+                .setTitle(R.string.sleep_title)
+                .setItems(labels) { _, which -> setSleepTimer(options[which]) }
+                .setNegativeButton(R.string.action_cancel, null)
+                .create(),
+            forceDark = true
+        ).show()
+    }
+
+    private fun setSleepTimer(minutes: Int) {
+        mainHandler.removeCallbacks(sleepRunnable)
+        sleepAtEnd = false
+        sleepEndsAt = 0L
+        if (minutes > 0) {
+            sleepEndsAt = SystemClock.elapsedRealtime() + minutes * 60_000L
+            mainHandler.postDelayed(sleepRunnable, minutes * 60_000L)
+        } else if (minutes < 0) {
+            sleepAtEnd = true
+        }
+        showHud(
+            when {
+                minutes == 0 -> getString(R.string.sleep_off)
+                minutes > 0 -> getString(R.string.sleep_set_fmt, getString(R.string.sleep_minutes_fmt, minutes))
+                else -> getString(R.string.sleep_set_fmt, getString(R.string.sleep_end))
+            }
+        )
+        updatePinnedValues()
+    }
+
+    private fun sleepNow() {
+        sleepEndsAt = 0L
+        sleepAtEnd = false
+        exo.playWhenReady = false
+        tts.pause()
+        extra.pause()
+        showControls()
+        showHud(getString(R.string.sleep_done))
     }
 
     // ---------- floating window (custom picture-in-picture) ----------
@@ -781,6 +1027,33 @@ class PlayerActivity : AppCompatActivity() {
                 id = "subtitles", iconRes = R.drawable.ic_subtitles,
                 labelRes = R.string.menu_subtitles, descRes = R.string.menu_subtitles_desc,
                 run = { pickSubtitle() }
+            ),
+            PlayerAction(
+                id = "subtracks", iconRes = R.drawable.ic_list,
+                labelRes = R.string.menu_subtracks, descRes = R.string.menu_subtracks_desc,
+                value = { subtitleSourceLabel() }, run = { showSubtitleTracksDialog() }
+            ),
+            PlayerAction(
+                id = "subsync", iconRes = R.drawable.ic_sync,
+                labelRes = R.string.menu_subsync, descRes = R.string.menu_subsync_desc,
+                value = { SubtitleSyncDialog.label(subtitleOffsetMs) }, valueAsPill = true,
+                run = { SubtitleSyncDialog.show(this, true, subtitleOffsetMs) { setSubtitleOffset(it) } }
+            ),
+            PlayerAction(
+                id = "substyle", iconRes = R.drawable.ic_text,
+                labelRes = R.string.menu_substyle, descRes = R.string.menu_substyle_desc,
+                run = { SubtitleStyleDialog.show(this, true) { SubtitleStyle.apply(this, b.subtitleText) } }
+            ),
+            PlayerAction(
+                id = "sleep", iconRes = R.drawable.ic_sleep,
+                labelRes = R.string.menu_sleep, descRes = R.string.menu_sleep_desc,
+                value = { sleepLabel() }, run = { showSleepDialog() }
+            ),
+            PlayerAction(
+                id = "repeat", iconRes = R.drawable.ic_repeat,
+                labelRes = R.string.menu_repeat, descRes = R.string.menu_repeat_desc,
+                value = { getString(if (repeatOne) R.string.menu_on else R.string.menu_off) },
+                run = { toggleRepeat() }
             ),
             PlayerAction(
                 id = "pip", iconRes = R.drawable.ic_pip,
@@ -1325,7 +1598,7 @@ class PlayerActivity : AppCompatActivity() {
         val target = if (dur > 0) posMs.coerceIn(0L, dur) else posMs.coerceAtLeast(0L)
         exo.seekTo(target)
         val playing = exo.playWhenReady
-        tts.forceTo(target, playing)
+        tts.forceTo(ttsTarget(target), playing && target - subtitleOffsetMs >= 0L)
         extra.forceTo(target, playing)
     }
 
@@ -1503,32 +1776,44 @@ class PlayerActivity : AppCompatActivity() {
         subtitlePicker.launch(arrayOf("*/*"))
     }
 
-    private fun onSubtitlePicked(uri: Uri) {
+    /**
+     * Loads a subtitle file. From the picker it also offers to make a spoken track; when found
+     * automatically ([withSpeech] and [quiet] false/true) it only shows the subtitles.
+     */
+    private fun onSubtitlePicked(uri: Uri, withSpeech: Boolean = true, quiet: Boolean = false) {
         Thread {
             val result = readSubtitle(uri)
             mainHandler.post {
                 if (isFinishing || isDestroyed) return@post
                 if (result == null) {
-                    Toast.makeText(this, R.string.player_bad_subtitle, Toast.LENGTH_SHORT).show()
+                    if (!quiet) Toast.makeText(this, R.string.player_bad_subtitle, Toast.LENGTH_SHORT).show()
                     return@post
                 }
                 val (name, text) = result
                 val outcome = runCatching { SubtitleParser.parse(name, text) }
                 val parsed = outcome.getOrNull()
                 if (parsed == null) {
-                    val why = outcome.exceptionOrNull()?.toString() ?: "unknown error"
-                    Toast.makeText(this, getString(R.string.player_subtitle_error, name, why), Toast.LENGTH_LONG).show()
+                    if (!quiet) {
+                        val why = outcome.exceptionOrNull()?.toString() ?: "unknown error"
+                        Toast.makeText(this, getString(R.string.player_subtitle_error, name, why), Toast.LENGTH_LONG).show()
+                    }
                     return@post
                 }
                 if (parsed.cues.isEmpty()) {
-                    Toast.makeText(this, getString(R.string.player_no_subtitles_fmt, name, text.length), Toast.LENGTH_LONG).show()
+                    if (!quiet) {
+                        Toast.makeText(this, getString(R.string.player_no_subtitles_fmt, name, text.length), Toast.LENGTH_LONG).show()
+                    }
                     return@post
                 }
                 track = parsed
-                lastShownCue = null
-                b.ttsChip.alpha = 1f
-                updateSubtitle(if (ready) exo.currentPosition.toInt() else 0)
-                beginTts(parsed, name, uri)
+                externalSubName = name
+                setSubSource(SubSource.EXTERNAL)
+                if (withSpeech) {
+                    b.ttsChip.alpha = 1f
+                    beginTts(parsed, name, uri)
+                } else if (quiet) {
+                    Toast.makeText(this, getString(R.string.sub_auto_loaded_fmt, name), Toast.LENGTH_SHORT).show()
+                }
             }
         }.start()
     }
@@ -1667,7 +1952,7 @@ class PlayerActivity : AppCompatActivity() {
         ttsUri = uri
         tts.volume = b.ttsVol.progress / 100f
         tts.enabled = true
-        tts.load(uri, if (ready) exo.currentPosition else 0L, exo.isPlaying) {
+        tts.load(uri, ttsTarget(if (ready) exo.currentPosition else 0L), exo.isPlaying) {
             if (released) return@load
             Toast.makeText(this, R.string.player_error_play, Toast.LENGTH_SHORT).show()
             tts.enabled = false
@@ -1679,7 +1964,7 @@ class PlayerActivity : AppCompatActivity() {
     private fun toggleTts() {
         tts.enabled = !tts.enabled
         if (!tts.enabled) tts.pause()
-        else tts.forceTo(if (ready) exo.currentPosition else 0L, exo.isPlaying)
+        else tts.forceTo(ttsTarget(if (ready) exo.currentPosition else 0L), exo.isPlaying)
         updateTtsChip()
     }
 
@@ -1701,7 +1986,8 @@ class PlayerActivity : AppCompatActivity() {
     }
 
     private fun updateSubtitle(pos: Int) {
-        val cue = track?.cueAt(pos.toLong())
+        if (subSource != SubSource.EXTERNAL) return
+        val cue = track?.cueAt(pos.toLong() - subtitleOffsetMs)
         if (cue != lastShownCue) {
             lastShownCue = cue
             if (cue == null) {

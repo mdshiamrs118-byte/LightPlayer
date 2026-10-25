@@ -309,6 +309,103 @@
             </LinearLayout>
         </LinearLayout>
 
+        <!-- Subtitles -->
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginBottom="12dp"
+            android:background="@drawable/bg_count_pill"
+            android:orientation="vertical"
+            android:padding="18dp"
+            android:tag="card">
+
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:tag="text1"
+                android:text="@string/settings_subtitles"
+                android:textColor="@color/text_primary"
+                android:textSize="20sp"
+                android:textStyle="bold" />
+
+            <LinearLayout
+                android:id="@+id/rowSubStyle"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:background="?attr/selectableItemBackground"
+                android:clickable="true"
+                android:focusable="true"
+                android:orientation="vertical"
+                android:paddingTop="12dp"
+                android:paddingBottom="4dp">
+
+                <TextView
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:tag="text1"
+                    android:text="@string/settings_sub_style"
+                    android:textColor="@color/text_primary"
+                    android:textSize="15sp" />
+
+                <TextView
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="2dp"
+                    android:tag="text2"
+                    android:text="@string/settings_sub_style_sub"
+                    android:textColor="@color/text_secondary"
+                    android:textSize="12sp" />
+            </LinearLayout>
+
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:gravity="center_vertical"
+                android:orientation="horizontal"
+                android:paddingTop="12dp">
+
+                <LinearLayout
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_marginEnd="12dp"
+                    android:layout_weight="1"
+                    android:orientation="vertical">
+
+                    <TextView
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:tag="text1"
+                        android:text="@string/settings_auto_sub"
+                        android:textColor="@color/text_primary"
+                        android:textSize="15sp" />
+
+                    <TextView
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:layout_marginTop="2dp"
+                        android:tag="text2"
+                        android:text="@string/settings_auto_sub_sub"
+                        android:textColor="@color/text_secondary"
+                        android:textSize="12sp" />
+                </LinearLayout>
+
+                <com.google.android.material.materialswitch.MaterialSwitch
+                    android:id="@+id/switchAutoSub"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:tag="switch" />
+            </LinearLayout>
+
+            <Button
+                android:id="@+id/btnSubMatch"
+                style="?attr/materialButtonOutlinedStyle"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="14dp"
+                android:tag="btn_outline"
+                android:text="@string/settings_sub_match" />
+        </LinearLayout>
+
         <!-- File access -->
         <LinearLayout
             android:layout_width="match_parent"
@@ -556,6 +653,16 @@
                 android:text="@string/settings_about"
                 android:textColor="@color/text_secondary"
                 android:textSize="15sp" />
+
+            <Button
+                android:id="@+id/btnCrashLog"
+                style="?attr/materialButtonOutlinedStyle"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="12dp"
+                android:tag="btn_outline"
+                android:text="@string/settings_crash_log"
+                android:visibility="gone" />
         </LinearLayout>
     </LinearLayout>
 </ScrollView>

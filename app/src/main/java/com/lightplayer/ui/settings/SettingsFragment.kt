@@ -6,6 +6,10 @@ import android.Manifest
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.os.Build
+import com.lightplayer.ui.tools.SubtitleMatchActivity
+import com.lightplayer.player.SubtitleStyleDialog
+import com.lightplayer.CrashHandler
+import com.lightplayer.CrashActivity
 import android.provider.Settings
 import android.net.Uri
 import androidx.activity.result.contract.ActivityResultContracts
@@ -107,6 +111,8 @@ class SettingsFragment : Fragment() {
         if (_binding != null) {
             refreshStorageInfo()
             updateFileStatus()
+            binding.btnCrashLog.visibility =
+                if (CrashHandler.lastReport(requireContext()) != null) View.VISIBLE else View.GONE
         }
     }
 
@@ -170,6 +176,18 @@ class SettingsFragment : Fragment() {
 
         binding.switchResume.setOnCheckedChangeListener { _, on -> Prefs.setResumeEnabled(ctx, on) }
         binding.switchAutoNext.setOnCheckedChangeListener { _, on -> Prefs.setAutoNext(ctx, on) }
+        binding.rowSubStyle.setOnClickListener {
+            SubtitleStyleDialog.show(requireActivity(), forceDark = false) {}
+        }
+        binding.switchAutoSub.isChecked = Prefs.autoSubtitles(ctx)
+        binding.switchAutoSub.setOnCheckedChangeListener { _, on -> Prefs.setAutoSubtitles(ctx, on) }
+        binding.btnSubMatch.setOnClickListener {
+            startActivity(Intent(ctx, SubtitleMatchActivity::class.java))
+        }
+        binding.btnCrashLog.setOnClickListener {
+            startActivity(Intent(ctx, CrashActivity::class.java).putExtra(CrashActivity.EXTRA_VIEW_ONLY, true))
+        }
+
         binding.switchAutoPip.isChecked = Prefs.autoPip(ctx)
         binding.switchAutoPip.setOnCheckedChangeListener { _, on ->
             Prefs.setAutoPip(ctx, on)

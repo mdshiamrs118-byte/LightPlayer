@@ -7,13 +7,15 @@ import com.lightplayer.R
 import com.lightplayer.databinding.ItemFolderBinding
 import com.lightplayer.databinding.ItemVideoBinding
 import com.lightplayer.theme.ThemeManager
+import com.lightplayer.util.FavoritesStore
 import com.lightplayer.util.Formats
 import com.lightplayer.util.PositionStore
 import com.lightplayer.util.Thumbs
 
 class VideoFolderAdapter(
     private val onFolderClick: (FolderItem) -> Unit,
-    private val onVideoClick: (VideoItem) -> Unit
+    private val onVideoClick: (VideoItem) -> Unit,
+    private val onVideoLongClick: (VideoItem) -> Unit = {}
 ) : RecyclerView.Adapter<RecyclerView.ViewHolder>() {
 
     private sealed class Row {
@@ -25,6 +27,14 @@ class VideoFolderAdapter(
 
     /** Folders in display order; kept so a single folder can be opened/closed with an animation. */
     private var folders: List<FolderItem> = emptyList()
+
+    fun isExpanded(folderId: String): Boolean =
+        rows.any { it is Row.FolderRow && it.folder.id == folderId && it.expanded }
+
+    /** Rebinds what is on screen (progress bars, stars, durations) without rebuilding the list. */
+    fun refresh() {
+        if (rows.isNotEmpty()) notifyItemRangeChanged(0, rows.size, PAYLOAD_REFRESH)
+    }
 
     /** Opens or closes one folder, animating only the rows that appear or disappear. */
     fun setExpanded(folder: FolderItem, open: Boolean) {
@@ -75,7 +85,7 @@ class VideoFolderAdapter(
         ThemeManager.ensure(holder.itemView)
         when (val row = rows[position]) {
             is Row.FolderRow -> (holder as FolderVH).bind(row, onFolderClick, animateChevron = false)
-            is Row.VideoRow -> (holder as VideoVH).bind(row, onVideoClick)
+            is Row.VideoRow -> (holder as VideoVH).bind(row, onVideoClick, onVideoLongClick)
         }
     }
 
@@ -96,7 +106,16 @@ class VideoFolderAdapter(
             val ctx = itemView.context
             b.folderName.text = f.name
             b.folderPath.text = f.path
-            b.folderDate.text = Formats.date(f.latestDate)
+            val pseudo = LibraryBuilder.isPseudo(f.id)
+            b.folderDate.visibility = if (pseudo) android.view.View.GONE else android.view.View.VISIBLE
+            if (!pseudo) b.folderDate.text = Formats.date(f.latestDate)
+            b.folderIcon.setImageResource(
+                when (f.id) {
+                    LibraryBuilder.FAVORITES_ID -> R.drawable.ic_star
+                    LibraryBuilder.CONTINUE_ID -> R.drawable.ic_play
+                    else -> R.drawable.ic_folder
+                }
+            )
             b.folderCount.text =
                 if (f.videos.size == 1) ctx.getString(R.string.video_one_count)
                 else ctx.getString(R.string.video_count_fmt, f.videos.size)
@@ -108,13 +127,24 @@ class VideoFolderAdapter(
     }
 
     private class VideoVH(private val b: ItemVideoBinding) : RecyclerView.ViewHolder(b.root) {
-        fun bind(row: Row.VideoRow, click: (VideoItem) -> Unit) {
+        fun bind(row: Row.VideoRow, click: (VideoItem) -> Unit, longClick: (VideoItem) -> Unit) {
             val v = row.video
+            val ctx = itemView.context
+            val uriText = v.uri.toString()
+
             b.videoTitle.text = v.title
             b.videoMeta.text = "${Formats.date(v.dateAdded)} • ${Formats.size(v.size)}"
-            b.durationBadge.text = Formats.time(v.durationMs)
-            Thumbs.load(itemView.context, v.uri, b.thumb, R.drawable.ic_video)
-            val watched = PositionStore.fraction(itemView.context, v.uri.toString(), v.durationMs)
+            b.favStar.visibility =
+                if (FavoritesStore.isFavorite(ctx, uriText)) android.view.View.VISIBLE else android.view.View.GONE
+
+            // Length: from the media library, or remembered from an earlier look at the file.
+            val duration = LibraryBuilder.effectiveDuration(ctx, v)
+            showDuration(duration)
+            Thumbs.load(ctx, v.uri, b.thumb, R.drawable.ic_video) { found ->
+                if (b.thumb.tag == v.uri) showDuration(found)
+            }
+
+            val watched = PositionStore.fraction(ctx, uriText, duration)
             if (watched > 0.01f) {
                 b.watchProgress.max = 1000
                 b.watchProgress.progress = (watched * 1000).toInt()
@@ -123,6 +153,20 @@ class VideoFolderAdapter(
                 b.watchProgress.visibility = android.view.View.GONE
             }
             b.root.setOnClickListener { click(v) }
+            b.root.setOnLongClickListener {
+                it.performHapticFeedback(android.view.HapticFeedbackConstants.LONG_PRESS)
+                longClick(v)
+                true
+            }
+        }
+
+        private fun showDuration(ms: Long) {
+            if (ms > 0L) {
+                b.durationBadge.text = Formats.time(ms)
+                b.durationBadge.visibility = android.view.View.VISIBLE
+            } else {
+                b.durationBadge.visibility = android.view.View.GONE
+            }
         }
     }
 
@@ -130,5 +174,6 @@ class VideoFolderAdapter(
         const val TYPE_FOLDER = 0
         const val TYPE_VIDEO = 1
         const val PAYLOAD_CHEVRON = "chevron"
+        const val PAYLOAD_REFRESH = "refresh"
     }
 }

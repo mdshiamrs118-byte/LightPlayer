@@ -60,6 +60,11 @@ object PositionStore {
         prefs(c).edit().remove(uri).apply()
     }
 
+    /** The most recently watched unfinished videos, newest first. */
+    @Synchronized
+    fun recent(c: Context, limit: Int): List<Pair<String, Entry>> =
+        load(c).entries.sortedByDescending { it.value.time }.take(limit).map { it.key to it.value }
+
     /** 0..1 how much of the video was watched (0 when unknown). */
     fun fraction(c: Context, uri: String, fallbackDurationMs: Long): Float {
         val e = get(c, uri) ?: return 0f

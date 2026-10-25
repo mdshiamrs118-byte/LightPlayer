@@ -45,6 +45,7 @@ It has no ads, no accounts and no internet requirement. Everything stays on your
 - **Player menu:** one tidy **gear button** replaces the pile of small buttons. It spins and slides up a slim rail of icons (**Playback speed, Aspect ratio, Audio tracks, Subtitles and speech, Spoken subtitles**). Tap the **>** button at the top of the rail to expand it and see every button's name, description and current value
 - **Floating window (our own picture-in-picture):** play the video in a small window **over other apps**. Drag it anywhere, **pinch or drag the corner handle to resize** it (it keeps the video's shape, and remembers its size and place), **double-tap to play/pause**, and **tap once to show or hide** the **−10 / +10**, **previous / next video**, expand and close buttons. The window has softly rounded corners, a thin progress line, and carries over your position, speed, audio track, added audio and spoken track. Start it from the player menu, or turn on **Auto floating window** in Settings to open it when you leave the app mid-video
 - **Pin your favorites:** long-press any menu item to pin it next to the gear as a quick button (speed and aspect show their current value). Pinned buttons scroll sideways, and long-pressing a pinned button unpins it
+- **Sleep timer** (10, 15, 30, 45, 60 minutes, or end of the video) and **Repeat** for the current video, both in the player menu
 - Full-screen immersive player, with cutout/notch-safe controls
 - **Double-tap** the left or right side to seek ∓10 seconds, **single tap** to show or hide controls
 - Seek bar with elapsed and remaining time, play/pause
@@ -53,6 +54,11 @@ It has no ads, no accounts and no internet requirement. Everything stays on your
 
 ### Library
 - Videos grouped by folder, with thumbnails, duration, date and size
+- **Search** by video or folder name, and **sort** by name, date added, size or length
+- **Favorites:** star any video; a **Favorites** section sits at the top of the list
+- **Continue watching:** a section at the top for videos you've started, with a progress bar on each thumbnail
+- **Long-press a video** for: Play, Add/Remove favorite, Share, Details and Delete (Android asks you to confirm deleting)
+- **Fast list:** thumbnails come from Android's own cache and are also saved on disk, and the list only re-reads your media when it actually changed. Video lengths that Android can't read (videos behind a fake image header) are worked out once and remembered, so no more `0:00`
 - Includes **SD cards** and other mounted storage
 - **Open file** button: pick any video with Android's built-in file picker, even one the media library doesn't list
 - "Open with Light Player" from file managers and other apps
@@ -64,6 +70,11 @@ It has no ads, no accounts and no internet requirement. Everything stays on your
 - One volume slider controls whichever audio is active
 
 ### Subtitles and text-to-speech
+- **Subtitle sync:** make subtitles earlier or later with −/+ buttons (0.1 s and 0.5 s steps). The spoken track follows, and the offset is remembered per video
+- **Subtitle style:** size, text color and background (none, dim, solid), with a live preview. Open it from the player menu or Settings
+- **Embedded subtitles:** choose subtitle tracks that are already inside the video file (or turn them off) from the player menu
+- **Match and rename subtitle files:** pick a folder and Light Player pairs subtitle files with videos by episode number or name, then renames them to match (Settings → Subtitles)
+- **Auto-load subtitles:** when a video starts, Light Player looks for a matching subtitle in the folders you picked and shows it automatically
 - Reads **SRT**, **WebVTT** and **ASS/SSA** subtitle files (UTF-8, UTF-16 and Windows-1252 are detected automatically)
 - Shows the subtitles over the video
 - Generates a **spoken audio track** from the subtitles with the system TTS engine, and plays it with its own volume slider
@@ -80,6 +91,8 @@ It has no ads, no accounts and no internet requirement. Everything stays on your
 3. Install `app-release.apk` (or `app-debug.apk`) on your phone. You may need to allow *Install unknown apps* for your browser or file manager.
 
 > Requires **Android 10 (API 29)** or newer.
+>
+> Tagged versions are also published under **Releases** with a ready-to-install APK (see [Release signing](#-release-signing-and-publishing)).
 
 ### First launch
 Allow access to videos when asked. If you skip this, you can still play anything with the **Open file** button.
@@ -99,6 +112,14 @@ Allow access to videos when asked. If you skip this, you can still play anything
 | Pause or play in the floating window | Double-tap it |
 | Show the −10 / +10, previous / next, expand and close buttons | Tap the floating window once |
 | Go to the previous or next video in the floating window | Tap ⏮ / ⏭ (shown when the video came from a folder with more videos) |
+| Search the library | Videos tab → 🔍 |
+| Sort the library | Videos tab → sort button (name, date, size, length) |
+| Favorite, share, delete or see details of a video | Long-press the video |
+| Make subtitles earlier or later | Gear menu → **Subtitle sync** |
+| Pick an embedded subtitle track | Gear menu → **Subtitle tracks** |
+| Change subtitle size, color or background | Gear menu → **Subtitle style** (or Settings → Subtitles) |
+| Match and rename subtitle files to their videos | Settings → Subtitles → **Match and rename subtitle files** |
+| Stop playback after a while | Gear menu → **Sleep timer** |
 | Open the player menu | Tap the **gear** button at the bottom right of the player (a slim icon rail slides up) |
 | See button names and descriptions | Tap the **>** button at the top of the menu rail |
 | Pin a menu item next to the gear | Long-press the item in the menu (long-press a pinned button to unpin it) |
@@ -138,6 +159,35 @@ The release build is signed with the debug key, so the APK is always installable
 ### Automatic builds
 Every push runs the workflow in [`.github/workflows/android.yml`](.github/workflows/android.yml), which builds debug and release APKs and uploads them as the **LightPlayer-APK** artifact (kept for 30 days).
 
+## 🔏 Release signing and publishing
+
+By default the release APK is signed with the debug key, which works for installing but changes if you ever build somewhere else. To sign with **your own key** (so every update installs over the last one):
+
+1. Create a keystore once, on any computer or in Termux (`pkg install openjdk-17`), and **keep the file and passwords safe, you can't recover them**:
+   ```bash
+   keytool -genkeypair -v -keystore lightplayer.jks -alias lightplayer \
+     -keyalg RSA -keysize 2048 -validity 10000
+   ```
+2. Turn it into text: `base64 -w 0 lightplayer.jks` (on macOS: `base64 -i lightplayer.jks`).
+3. In your GitHub repository go to **Settings → Secrets and variables → Actions → New repository secret** and add:
+
+   | Secret | Value |
+   |---|---|
+   | `KEYSTORE_BASE64` | the text from step 2 |
+   | `KEYSTORE_PASSWORD` | the keystore password |
+   | `KEY_ALIAS` | `lightplayer` (the alias you used) |
+   | `KEY_PASSWORD` | the key password (same as the keystore password if you pressed Enter) |
+
+4. Push as usual. The workflow log says whether your key was found, and `LightPlayer-APK` now contains an APK signed with it.
+
+**Publishing a release:** push a tag that starts with `v`, for example:
+
+```bash
+git tag v1.8 && git push origin v1.8
+```
+
+The workflow builds the APK and attaches `LightPlayer-v1.8.apk` to a new GitHub Release with automatic notes. Never commit the keystore file itself.
+
 ## 🧱 Tech stack
 
 | | |
@@ -164,6 +214,7 @@ app/src/main/java/com/lightplayer/
 │   ├── video/               # library, folders, file picker
 │   ├── music/               # generated TTS tracks
 │   └── settings/            # appearance, file access, TTS and storage settings
+├── CrashHandler.kt / CrashActivity.kt   # crash screen (runs in its own process)
 ├── theme/                   # theme engine (palette, modes, hue) and the floating pill nav bar
 ├── subtitle/                # SRT / VTT / ASS parsing
 ├── tts/                     # speech generation and caching
@@ -180,6 +231,8 @@ app/src/main/java/com/lightplayer/
 **Downloaded videos from streaming sites don't play in other apps.** Some sites hide their video streams behind a fake image header (the file starts like a PNG, but the real MPEG-TS video begins a little later). Light Player detects this and skips the junk automatically. The first time you open a large file there may be a few seconds of loading while it scans.
 
 **The duration badge shows 0:00 for a video.** Android's media library couldn't read that file. The player still shows the correct duration once playback starts.
+
+**The app crashed.** Light Player shows a crash screen with **Copy log** and **Share log** buttons instead of closing silently. You can open the last report any time from **Settings → About → View last crash log**.
 
 **No sound from the generated speech track.** Check that a TTS engine and a voice are installed in your phone's system settings, then pick it in Light Player's **Settings** tab.
 

@@ -222,6 +222,10 @@ object ThemeManager {
                 (view as? TextView)?.setTextColor(p.onContainer)
             }
             "thumb" -> view.background = rounded(ctx, p.container, 12f)
+            "input" -> (view as? TextView)?.let {
+                it.setTextColor(p.onContainer)
+                it.setHintTextColor(p.text2)
+            }
             "text1" -> (view as? TextView)?.setTextColor(p.text1)
             "text2" -> (view as? TextView)?.setTextColor(p.text2)
             "accent_text" -> (view as? TextView)?.setTextColor(p.accent)

@@ -3,6 +3,15 @@ plugins {
     id("org.jetbrains.kotlin.android")
 }
 
+// Release signing: set these environment variables (the GitHub workflow does it from your repository
+// secrets) to sign the release APK with your own key. Without them it falls back to the debug key.
+val releaseKeystore: String? = System.getenv("KEYSTORE_FILE")?.takeIf { it.isNotBlank() }
+val releaseStorePassword: String? = System.getenv("KEYSTORE_PASSWORD")?.takeIf { it.isNotBlank() }
+val releaseKeyAlias: String? = System.getenv("KEY_ALIAS")?.takeIf { it.isNotBlank() }
+val releaseKeyPassword: String? = System.getenv("KEY_PASSWORD")?.takeIf { it.isNotBlank() }
+val hasReleaseKey = releaseKeystore != null && file(releaseKeystore).exists() &&
+    releaseStorePassword != null && releaseKeyAlias != null
+
 android {
     namespace = "com.lightplayer"
     compileSdk = 34
@@ -11,16 +20,27 @@ android {
         applicationId = "com.lightplayer"
         minSdk = 29          // Android 10
         targetSdk = 34
-        versionCode = 8
-        versionName = "1.7"
+        versionCode = 9
+        versionName = "1.8"
+    }
+
+    signingConfigs {
+        if (hasReleaseKey) {
+            create("release") {
+                storeFile = file(releaseKeystore!!)
+                storePassword = releaseStorePassword
+                keyAlias = releaseKeyAlias
+                keyPassword = releaseKeyPassword ?: releaseStorePassword
+            }
+        }
     }
 
     buildTypes {
         release {
-            // Lightweight app: no shrinking needed; release is signed with the
-            // debug key so the CI artifact is always installable.
+            // Lightweight app: no shrinking needed.
             isMinifyEnabled = false
-            signingConfig = signingConfigs.getByName("debug")
+            signingConfig = if (hasReleaseKey) signingConfigs.getByName("release")
+            else signingConfigs.getByName("debug")
         }
     }
 

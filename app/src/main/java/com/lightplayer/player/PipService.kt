@@ -137,6 +137,7 @@ class PipService : Service(), PipOverlay.Callbacks {
     private var loadToken = 0
     private var lastSave = 0L
     private var closing = false
+    private var subtitleOffset = 0L
 
     private val ticker = object : Runnable {
         override fun run() {
@@ -145,7 +146,8 @@ class PipService : Service(), PipOverlay.Callbacks {
             val dur = p.duration
             overlay?.setProgress(if (dur > 0) pos.toFloat() / dur else 0f)
             val playing = p.isPlaying
-            tts.sync(pos, playing)
+            val ttsPos = pos - subtitleOffset
+            if (ttsPos < 0L) tts.sync(0L, false) else tts.sync(ttsPos, playing)
             extra.sync(pos, playing)
             val now = SystemClock.elapsedRealtime()
             if (playing && now - lastSave > 5_000L) {
@@ -214,6 +216,7 @@ class PipService : Service(), PipOverlay.Callbacks {
         )
         session = s
         currentUri = s.uri
+        subtitleOffset = Prefs.subtitleOffset(this, s.uri.toString())
         currentTitle = s.title
         currentDuration = s.durationMs
         playlistIndex = s.playlistIndex
@@ -246,7 +249,7 @@ class PipService : Service(), PipOverlay.Callbacks {
         extra.volume = volume
         if (s.ttsUri != null) {
             tts.enabled = s.ttsEnabled
-            tts.load(s.ttsUri, s.positionMs, s.playing && s.ttsEnabled) { tts.enabled = false }
+            tts.load(s.ttsUri, (s.positionMs - subtitleOffset).coerceAtLeast(0L), s.playing && s.ttsEnabled) { tts.enabled = false }
         }
         if (s.extraAudioUri != null) {
             extra.enabled = true
@@ -365,7 +368,7 @@ class PipService : Service(), PipOverlay.Callbacks {
             .coerceAtLeast(0L)
             .let { if (dur > 0) it.coerceAtMost(dur) else it }
         p.seekTo(target)
-        tts.forceTo(target, p.playWhenReady)
+        tts.forceTo((target - subtitleOffset).coerceAtLeast(0L), p.playWhenReady && target - subtitleOffset >= 0L)
         extra.forceTo(target, p.playWhenReady)
     }
 
@@ -426,6 +429,7 @@ class PipService : Service(), PipOverlay.Callbacks {
         playlistIndex = index
         val uri = Uri.parse(s.playlistUris[index])
         currentUri = uri
+        subtitleOffset = Prefs.subtitleOffset(this, uri.toString())
         currentTitle = s.playlistTitles[index]
         currentDuration = s.playlistDurations.getOrElse(index) { 0L }
 
