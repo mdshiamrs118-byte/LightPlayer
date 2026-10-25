@@ -51,6 +51,8 @@ class PipOverlay(
         fun onSeekBy(deltaMs: Long)
         fun onClose()
         fun onExpand()
+        fun onPrevious()
+        fun onNext()
     }
 
     /** The video is drawn into this. */
@@ -66,6 +68,8 @@ class PipOverlay(
     private val controls = FrameLayout(ctx)
     private val hud = ImageView(ctx)
     private val resizeHandle = ImageView(ctx)
+    private lateinit var prevButton: ImageView
+    private lateinit var nextButton: ImageView
     private lateinit var params: WindowManager.LayoutParams
 
     private var aspect = 16f / 9f
@@ -187,6 +191,24 @@ class PipOverlay(
             textButton("+10", ctx.getString(R.string.cd_forward)) { callbacks.onSeekBy(SEEK_MS) },
             FrameLayout.LayoutParams(dp(44f), dp(44f), Gravity.CENTER_VERTICAL or Gravity.END).apply {
                 marginEnd = dp(16f)
+            }
+        )
+
+        // previous / next video (only shown when the video came from a folder with more videos)
+        prevButton = iconButton(R.drawable.ic_skip_prev, ctx.getString(R.string.cd_prev)) { callbacks.onPrevious() }
+        nextButton = iconButton(R.drawable.ic_skip_next, ctx.getString(R.string.cd_next)) { callbacks.onNext() }
+        prevButton.visibility = View.GONE
+        nextButton.visibility = View.GONE
+        controls.addView(
+            prevButton,
+            FrameLayout.LayoutParams(dp(34f), dp(34f), Gravity.BOTTOM or Gravity.START).apply {
+                setMargins(dp(6f), 0, 0, dp(8f))
+            }
+        )
+        controls.addView(
+            nextButton,
+            FrameLayout.LayoutParams(dp(34f), dp(34f), Gravity.BOTTOM or Gravity.START).apply {
+                setMargins(dp(46f), 0, 0, dp(8f))
             }
         )
 
@@ -357,6 +379,14 @@ class PipOverlay(
         hud.animate().scaleX(1f).scaleY(1f).setDuration(220)
             .setInterpolator(OvershootInterpolator(2f)).start()
         handler.postDelayed(hideHudRunnable, 520)
+    }
+
+    /** Shows the previous / next buttons when there is a playlist; dims "next" on the last video. */
+    fun setPlaylist(visible: Boolean, hasNext: Boolean) {
+        val v = if (visible) View.VISIBLE else View.GONE
+        prevButton.visibility = v
+        nextButton.visibility = v
+        nextButton.alpha = if (hasNext) 1f else 0.4f
     }
 
     fun setProgress(fraction: Float) {

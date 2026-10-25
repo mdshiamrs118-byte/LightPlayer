@@ -231,6 +231,7 @@ class PipService : Service(), PipOverlay.Callbacks {
             return
         }
         overlay = window
+        updatePlaylistButtons()
 
         val p = createPlayer()
         player = p
@@ -371,6 +372,20 @@ class PipService : Service(), PipOverlay.Callbacks {
     override fun onClose() = closeAndStop()
     override fun onExpand() = expand()
 
+    override fun onNext() {
+        val s = session ?: return
+        if (playlistIndex + 1 < s.playlistUris.size) playIndex(playlistIndex + 1)
+    }
+
+    /** Previous video, or back to the start when already on the first one. */
+    override fun onPrevious() {
+        if (playlistIndex > 0) {
+            playIndex(playlistIndex - 1)
+        } else {
+            onSeekBy(-(player?.currentPosition ?: 0L))
+        }
+    }
+
     private fun togglePlay() {
         val p = player ?: return
         if (p.playbackState == Player.STATE_ENDED) {
@@ -395,29 +410,48 @@ class PipService : Service(), PipOverlay.Callbacks {
         currentUri?.let { PositionStore.clear(this, it.toString()) }
         val s = session ?: return
         val next = playlistIndex + 1
-        if (Prefs.autoNext(this) && next < s.playlistUris.size && next < s.playlistTitles.size) {
-            playlistIndex = next
-            currentUri = Uri.parse(s.playlistUris[next])
-            currentTitle = s.playlistTitles[next]
-            currentDuration = s.playlistDurations.getOrElse(next) { 0L }
-            // Added audio and speech belonged to the previous video.
-            tts.release(); tts.enabled = false
-            extra.release(); extra.enabled = false
-            extraActive = false
-            player?.volume = volume
-            player?.let {
-                it.trackSelectionParameters = it.trackSelectionParameters.buildUpon()
-                    .clearOverridesOfType(C.TRACK_TYPE_AUDIO).build()
-            }
-            wantPlay = true
-            val start = if (Prefs.resumeEnabled(this)) {
-                (PositionStore.get(this, currentUri.toString())?.pos ?: 0L).let { (it - 2_000L).coerceAtLeast(0L) }
-            } else 0L
-            loadMedia(currentUri!!, start)
-            updateNotification()
+        if (Prefs.autoNext(this) && next < s.playlistUris.size) {
+            playIndex(next)
         } else {
             overlay?.showControls()
         }
+    }
+
+    /** Switches the window to another video from the playlist. */
+    private fun playIndex(index: Int) {
+        val s = session ?: return
+        if (index !in s.playlistUris.indices || index >= s.playlistTitles.size) return
+
+        savePosition()   // remember where we left the video we are leaving
+        playlistIndex = index
+        val uri = Uri.parse(s.playlistUris[index])
+        currentUri = uri
+        currentTitle = s.playlistTitles[index]
+        currentDuration = s.playlistDurations.getOrElse(index) { 0L }
+
+        // Added audio and speech belonged to the previous video.
+        tts.release(); tts.enabled = false
+        extra.release(); extra.enabled = false
+        extraActive = false
+        player?.volume = volume
+        player?.let {
+            it.trackSelectionParameters = it.trackSelectionParameters.buildUpon()
+                .clearOverridesOfType(C.TRACK_TYPE_AUDIO).build()
+        }
+
+        wantPlay = true
+        val start = if (Prefs.resumeEnabled(this)) {
+            ((PositionStore.get(this, uri.toString())?.pos ?: 0L) - 2_000L).coerceAtLeast(0L)
+        } else 0L
+        loadMedia(uri, start)
+        updateNotification()
+        updatePlaylistButtons()
+        overlay?.showControls()
+    }
+
+    private fun updatePlaylistButtons() {
+        val s = session ?: return
+        overlay?.setPlaylist(s.playlistUris.size > 1, playlistIndex + 1 < s.playlistUris.size)
     }
 
     // ---------- leaving ----------
