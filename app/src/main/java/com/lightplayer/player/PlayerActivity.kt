@@ -99,6 +99,15 @@ class PlayerActivity : AppCompatActivity() {
         const val EXTRA_PLAYLIST_TITLES = "extra_playlist_titles"
         const val EXTRA_PLAYLIST_DURATIONS = "extra_playlist_durations"
         const val EXTRA_PLAYLIST_INDEX = "extra_playlist_index"
+
+        // Carried over from the floating window when it expands back to this screen.
+        const val EXTRA_RESUME_POSITION = "extra_resume_position"
+        const val EXTRA_RESUME_PLAYING = "extra_resume_playing"
+        const val EXTRA_EMBEDDED_INDEX = "extra_embedded_index"
+        const val EXTRA_AUDIO_URI = "extra_audio_uri"
+        const val EXTRA_AUDIO_NAME = "extra_audio_name"
+        const val EXTRA_TTS_URI = "extra_tts_uri"
+        const val EXTRA_TTS_ENABLED = "extra_tts_enabled"
     }
 
     private enum class Aspect(val labelRes: Int) {
@@ -134,6 +143,11 @@ class PlayerActivity : AppCompatActivity() {
     private var playlistIndex = 0
     private var loadToken = 0
     private var lastSaveAt = 0L
+
+    private var pendingStartMs = -1L          // position handed over by the floating window
+    private var pendingPlay = true
+    private var pendingEmbeddedIndex = -1
+    private var ttsUri: Uri? = null
 
     private var speed = 1f
     private val speeds = floatArrayOf(0.5f, 0.75f, 1f, 1.25f, 1.5f, 1.75f, 2f)
@@ -243,11 +257,17 @@ class PlayerActivity : AppCompatActivity() {
         tts.speed = speed
         extra.speed = speed
 
+        // Opening the full player replaces any floating window.
+        PipService.stop(this)
+        pendingStartMs = intent.getLongExtra(EXTRA_RESUME_POSITION, -1L)
+        pendingPlay = intent.getBooleanExtra(EXTRA_RESUME_PLAYING, true)
+
         readPlaylist()
         registerControlReceiver()
         setupPlayer()
         setupControls()
         setupGestures()
+        restoreFromFloatingWindow()
 
         showControls()
         mainHandler.post(ticker)
@@ -330,6 +350,11 @@ class PlayerActivity : AppCompatActivity() {
             override fun onTracksChanged(tracks: Tracks) {
                 if (released) return
                 embeddedAudio = collectAudioTracks(tracks)
+                if (pendingEmbeddedIndex in embeddedAudio.indices) {
+                    val wanted = embeddedAudio[pendingEmbeddedIndex]
+                    pendingEmbeddedIndex = -1
+                    selectEmbedded(wanted)
+                }
             }
 
             override fun onPlayerError(error: PlaybackException) {
@@ -358,7 +383,7 @@ class PlayerActivity : AppCompatActivity() {
         val uri = videoUri ?: return
         val appCtx = applicationContext
         val token = ++loadToken
-        val startMs = savedStart(uri)
+        val startMs = if (pendingStartMs >= 0L) pendingStartMs.also { pendingStartMs = -1L } else savedStart(uri)
         if (startMs > 0L) {
             Toast.makeText(this, getString(R.string.player_resumed_fmt, Formats.time(startMs)), Toast.LENGTH_SHORT).show()
         }
@@ -375,7 +400,8 @@ class PlayerActivity : AppCompatActivity() {
                 } else {
                     exo.setMediaItem(MediaItem.fromUri(uri), startMs)
                 }
-                exo.playWhenReady = true
+                exo.playWhenReady = pendingPlay
+                pendingPlay = true
                 exo.prepare()
             }
         }.start()
@@ -607,6 +633,99 @@ class PlayerActivity : AppCompatActivity() {
         }
     }
 
+    // ---------- floating window (custom picture-in-picture) ----------
+
+    /** Hands the video over to the floating window and leaves this screen. */
+    private fun startFloatingWindow() {
+        if (released) return
+        if (!Settings.canDrawOverlays(this)) {
+            showOverlayPermissionDialog()
+            return
+        }
+        val uri = videoUri ?: return
+        savePosition()
+
+        val extraItem = extraAudios.getOrNull(selectedExtra)
+        val embeddedIndex = if (selectedExtra >= 0) -1
+        else embeddedAudio.indexOfFirst { it.group.isTrackSelected(it.trackIndex) }
+
+        PipService.start(
+            this,
+            PipService.Session(
+                uri = uri,
+                title = videoTitle,
+                durationMs = durationMs().toLong(),
+                positionMs = exo.currentPosition,
+                playing = exo.playWhenReady && exo.playbackState != Player.STATE_ENDED,
+                speed = speed,
+                volume = b.videoVol.progress / 100f,
+                embeddedIndex = embeddedIndex,
+                extraAudioUri = extraItem?.uri,
+                extraAudioName = extraItem?.name,
+                ttsUri = if (tts.isLoaded) ttsUri else null,
+                ttsEnabled = tts.enabled,
+                ttsVolume = b.ttsVol.progress / 100f,
+                aspect = if (videoW > 0f && videoH > 0f) videoW / videoH else 0f,
+                playlistUris = playlistUris.map { it.toString() },
+                playlistTitles = playlistTitles,
+                playlistDurations = LongArray(playlistDurations.size) { playlistDurations[it].toLong() },
+                playlistIndex = playlistIndex
+            )
+        )
+
+        // The floating window plays from here on; silence this screen and leave.
+        exo.playWhenReady = false
+        tts.pause()
+        extra.pause()
+        finish()
+    }
+
+    private fun showOverlayPermissionDialog() {
+        ThemeManager.themed(
+            ThemeManager.dialogBuilder(this, forceDark = true)
+                .setTitle(R.string.pip_permission_title)
+                .setMessage(R.string.pip_permission_message)
+                .setPositiveButton(R.string.pip_permission_open) { _, _ ->
+                    try {
+                        startActivity(
+                            Intent(Settings.ACTION_MANAGE_OVERLAY_PERMISSION, Uri.parse("package:$packageName"))
+                        )
+                    } catch (_: Throwable) {
+                    }
+                }
+                .setNegativeButton(R.string.action_cancel, null)
+                .create(),
+            forceDark = true
+        ).show()
+    }
+
+    /** When the floating window expands back to this screen, bring its audio choices along. */
+    private fun restoreFromFloatingWindow() {
+        val extraUri = intent.getStringExtra(EXTRA_AUDIO_URI)
+        if (extraUri != null) {
+            extraAudios.add(ExtraAudio(Uri.parse(extraUri), intent.getStringExtra(EXTRA_AUDIO_NAME) ?: "audio"))
+            selectExtra(0)
+        } else {
+            pendingEmbeddedIndex = intent.getIntExtra(EXTRA_EMBEDDED_INDEX, -1)
+        }
+        val speech = intent.getStringExtra(EXTRA_TTS_URI)
+        if (speech != null) {
+            loadTtsTrack(Uri.parse(speech))
+            tts.enabled = intent.getBooleanExtra(EXTRA_TTS_ENABLED, true)
+            updateTtsChip()
+        }
+    }
+
+    /** Optional: start the floating window by itself when the user leaves the app mid-video. */
+    override fun onUserLeaveHint() {
+        super.onUserLeaveHint()
+        if (!released && !isFinishing && Prefs.autoPip(this) && exo.isPlaying &&
+            Settings.canDrawOverlays(this)
+        ) {
+            startFloatingWindow()
+        }
+    }
+
     // ---------- player menu (gear button) ----------
 
     /**
@@ -662,6 +781,11 @@ class PlayerActivity : AppCompatActivity() {
                 id = "subtitles", iconRes = R.drawable.ic_subtitles,
                 labelRes = R.string.menu_subtitles, descRes = R.string.menu_subtitles_desc,
                 run = { pickSubtitle() }
+            ),
+            PlayerAction(
+                id = "pip", iconRes = R.drawable.ic_pip,
+                labelRes = R.string.menu_pip, descRes = R.string.menu_pip_desc,
+                run = { startFloatingWindow() }
             ),
             PlayerAction(
                 id = "tts", iconRes = R.drawable.ic_tts,
@@ -1540,6 +1664,7 @@ class PlayerActivity : AppCompatActivity() {
     // ---------- TTS playback ----------
 
     private fun loadTtsTrack(uri: Uri) {
+        ttsUri = uri
         tts.volume = b.ttsVol.progress / 100f
         tts.enabled = true
         tts.load(uri, if (ready) exo.currentPosition else 0L, exo.isPlaying) {

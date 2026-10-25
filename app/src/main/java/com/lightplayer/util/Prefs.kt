@@ -51,4 +51,16 @@ object Prefs {
     fun setPinnedActions(context: Context, ids: List<String>) {
         sp(context).edit().putString("pinned_actions", ids.joinToString(",")).apply()
     }
+
+    // ---- floating window (custom picture-in-picture) ----
+    fun autoPip(context: Context): Boolean = sp(context).getBoolean("auto_pip", false)
+    fun setAutoPip(context: Context, v: Boolean) { sp(context).edit().putBoolean("auto_pip", v).apply() }
+
+    /** Width in pixels of the floating window (0 = not chosen yet). */
+    fun pipWidth(context: Context): Int = sp(context).getInt("pip_width", 0)
+    fun pipX(context: Context): Int = sp(context).getInt("pip_x", -1)
+    fun pipY(context: Context): Int = sp(context).getInt("pip_y", -1)
+    fun setPipGeometry(context: Context, width: Int, x: Int, y: Int) {
+        sp(context).edit().putInt("pip_width", width).putInt("pip_x", x).putInt("pip_y", y).apply()
+    }
 }

@@ -6,6 +6,8 @@ import android.Manifest
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.os.Build
+import android.provider.Settings
+import android.net.Uri
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.core.content.ContextCompat
 import android.os.Bundle
@@ -168,6 +170,19 @@ class SettingsFragment : Fragment() {
 
         binding.switchResume.setOnCheckedChangeListener { _, on -> Prefs.setResumeEnabled(ctx, on) }
         binding.switchAutoNext.setOnCheckedChangeListener { _, on -> Prefs.setAutoNext(ctx, on) }
+        binding.switchAutoPip.isChecked = Prefs.autoPip(ctx)
+        binding.switchAutoPip.setOnCheckedChangeListener { _, on ->
+            Prefs.setAutoPip(ctx, on)
+            // The floating window needs "Display over other apps".
+            if (on && !Settings.canDrawOverlays(ctx)) {
+                try {
+                    startActivity(
+                        Intent(Settings.ACTION_MANAGE_OVERLAY_PERMISSION, Uri.parse("package:" + ctx.packageName))
+                    )
+                } catch (_: Throwable) {
+                }
+            }
+        }
         binding.switchBgAudio.setOnCheckedChangeListener { _, on ->
             Prefs.setBackgroundAudio(ctx, on)
             if (on && Build.VERSION.SDK_INT >= 33 &&

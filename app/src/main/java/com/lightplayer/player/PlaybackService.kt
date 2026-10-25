@@ -65,7 +65,7 @@ class PlaybackService : Service() {
                 .build()
         }
 
-        private fun ensureChannel(ctx: Context) {
+        fun ensureChannel(ctx: Context) {
             val nm = ctx.getSystemService(NotificationManager::class.java)
             if (nm.getNotificationChannel(CHANNEL_ID) == null) {
                 nm.createNotificationChannel(
