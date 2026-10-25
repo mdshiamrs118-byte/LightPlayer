@@ -232,6 +232,8 @@ app/src/main/java/com/lightplayer/
 
 **The duration badge shows 0:00 for a video.** Android's media library couldn't read that file. The player still shows the correct duration once playback starts.
 
+**Deleting generated audio asks for confirmation.** Android only lets an app delete media files it created itself without asking. If it doesn't own a file (for example after reinstalling with a different signing key), Android shows its own "allow deleting?" screen. Files you delete with a file manager disappear from the Music tab automatically, even when Android's media library still lists them.
+
 **The app crashed.** Light Player shows a crash screen with **Copy log** and **Share log** buttons instead of closing silently. You can open the last report any time from **Settings → About → View last crash log**.
 
 **No sound from the generated speech track.** Check that a TTS engine and a voice are installed in your phone's system settings, then pick it in Light Player's **Settings** tab.

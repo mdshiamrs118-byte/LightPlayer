@@ -32,6 +32,9 @@ class MusicFragment : Fragment() {
     private var player: MediaPlayer? = null
     private var currentUri: Uri? = null
 
+    // Deleting generated audio; asks Android for permission when it has to.
+    private val deleter = MediaDeleter(this) { if (_binding != null) loadTracks() }
+
     private var converter: BatchTtsConverter? = null
     private var batchDialog: androidx.appcompat.app.AlertDialog? = null
     private var batchBinding: DialogTtsGenerateBinding? = null
@@ -219,15 +222,7 @@ class MusicFragment : Fragment() {
             .setPositiveButton(R.string.action_delete) { _, _ ->
                 val wasPlaying = currentUri == track.uri
                 if (wasPlaying) stopPlayback()
-                val appCtx = ctx.applicationContext
-                val uri = track.uri
-                Thread {
-                    try { appCtx.contentResolver.delete(uri, null, null) } catch (t: Throwable) {}
-                    TtsIndex(appCtx).remove(uri.toString())
-                    activity?.runOnUiThread {
-                        if (_binding != null) loadTracks()
-                    }
-                }.start()
+                deleter.delete(listOf(track.uri))
             }
             .setNegativeButton(R.string.action_cancel, null)
             .create()).show()

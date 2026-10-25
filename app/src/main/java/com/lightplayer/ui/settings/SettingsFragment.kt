@@ -29,6 +29,7 @@ import androidx.fragment.app.Fragment
 import com.lightplayer.MainActivity
 import com.lightplayer.theme.Palette
 import com.lightplayer.theme.ThemeManager
+import com.lightplayer.ui.music.MediaDeleter
 import com.lightplayer.R
 import com.lightplayer.databinding.FragmentSettingsBinding
 import com.lightplayer.tts.TtsIndex
@@ -52,6 +53,11 @@ class SettingsFragment : Fragment() {
     private val modeChips = ArrayList<Chip>()
     private val colorChips = ArrayList<Chip>()
     private val navChips = ArrayList<Chip>()
+
+    // Deleting generated audio; asks Android for permission when it has to.
+    private val deleter = MediaDeleter(this) {
+        if (_binding != null) refreshStorageInfo()
+    }
 
     // Android 13+ asks before a notification can be shown; background audio uses one.
     private val notificationPermission =
@@ -369,15 +375,17 @@ class SettingsFragment : Fragment() {
             .setMessage(R.string.settings_clear_confirm)
             .setPositiveButton(R.string.action_delete) { _, _ ->
                 Thread {
-                    val tracks = try { TtsTrackRepository.load(appCtx) } catch (t: Throwable) { emptyList() }
-                    for (t in tracks) {
-                        try { appCtx.contentResolver.delete(t.uri, null, null) } catch (e: Throwable) {}
-                    }
-                    TtsIndex(appCtx).clear()
+                    val uris = try { TtsTrackRepository.load(appCtx).map { it.uri } } catch (t: Throwable) { emptyList() }
                     activity?.runOnUiThread {
                         if (_binding == null) return@runOnUiThread
-                        refreshStorageInfo()
-                        Toast.makeText(requireContext(), R.string.settings_cleared, Toast.LENGTH_SHORT).show()
+                        if (uris.isEmpty()) {
+                            // Nothing listed: still forget any leftover records.
+                            TtsIndex(appCtx).clear()
+                            refreshStorageInfo()
+                            Toast.makeText(requireContext(), R.string.settings_cleared, Toast.LENGTH_SHORT).show()
+                        } else {
+                            deleter.delete(uris)
+                        }
                     }
                 }.start()
             }

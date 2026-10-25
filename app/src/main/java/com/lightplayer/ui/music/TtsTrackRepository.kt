@@ -2,6 +2,10 @@ package com.lightplayer.ui.music
 
 import android.content.ContentUris
 import android.content.Context
+import android.media.MediaScannerConnection
+import android.os.Environment
+import com.lightplayer.util.MediaFiles
+import java.io.File
 import android.net.Uri
 import android.provider.MediaStore
 import com.lightplayer.tts.TtsIndex
@@ -22,6 +26,7 @@ object TtsTrackRepository {
         val appCtx = context.applicationContext
         val index = TtsIndex(appCtx)
         val out = ArrayList<TtsTrack>()
+        val stalePaths = ArrayList<String>()
 
         val projection = arrayOf(
             MediaStore.Audio.Media._ID,
@@ -46,11 +51,22 @@ object TtsTrackRepository {
             val iDate = c.getColumnIndexOrThrow(MediaStore.Audio.Media.DATE_ADDED)
             val iSize = c.getColumnIndexOrThrow(MediaStore.Audio.Media.SIZE)
             val iDur = c.getColumnIndexOrThrow(MediaStore.Audio.Media.DURATION)
+            val iRel = c.getColumnIndexOrThrow(MediaStore.Audio.Media.RELATIVE_PATH)
 
             while (c.moveToNext()) {
                 val id = c.getLong(iId)
                 val name = c.getString(iName) ?: continue
                 val uri = ContentUris.withAppendedId(MediaStore.Audio.Media.EXTERNAL_CONTENT_URI, id)
+
+                // The media library can still list a file that was deleted with a file manager.
+                if (!MediaFiles.exists(appCtx, uri)) {
+                    index.remove(uri.toString())
+                    val rel = c.getString(iRel) ?: ""
+                    stalePaths.add(File(Environment.getExternalStorageDirectory(), rel + name).path)
+                    try { appCtx.contentResolver.delete(uri, null, null) } catch (_: Throwable) {}
+                    continue
+                }
+
                 val date = c.getLong(iDate)
                 val size = c.getLong(iSize)
                 var duration = c.getLong(iDur)
@@ -78,6 +94,13 @@ object TtsTrackRepository {
                         durationMs = duration
                     )
                 )
+            }
+        }
+        // Ask Android to refresh those entries so they disappear for good.
+        if (stalePaths.isNotEmpty()) {
+            try {
+                MediaScannerConnection.scanFile(appCtx, stalePaths.toTypedArray(), null, null)
+            } catch (_: Throwable) {
             }
         }
         return out

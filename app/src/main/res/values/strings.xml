@@ -226,6 +226,8 @@
     <string name="match_saved_fmt">Saved subtitle folders: %1$d</string>
     <string name="match_forget">Forget saved folders</string>
     <string name="match_forgot">Saved folders cleared</string>
+    <string name="music_deleted_fmt">%1$d deleted</string>
+    <string name="music_delete_failed">Couldn\'t delete every file. Android may have refused it.</string>
     <string name="settings_nav">Navigation style</string>
     <string name="nav_pill">Pill</string>
     <string name="nav_classic">Classic</string>
