@@ -45,6 +45,7 @@ It has no ads, no accounts and no internet requirement. Everything stays on your
 - **Player menu:** one tidy **gear button** replaces the pile of small buttons. It spins and slides up a slim rail of icons (**Playback speed, Aspect ratio, Audio tracks, Subtitles and speech, Spoken subtitles**). Tap the **>** button at the top of the rail to expand it and see every button's name, description and current value
 - **Floating window (our own picture-in-picture):** play the video in a small window **over other apps**. Drag it anywhere, **pinch or drag the corner handle to resize** it (it keeps the video's shape, and remembers its size and place), **double-tap to play/pause**, and **tap once to show or hide** the **−10 / +10**, **previous / next video**, expand and close buttons. The window has softly rounded corners, a thin progress line, and carries over your position, speed, audio track, added audio and spoken track. Start it from the player menu, or turn on **Auto floating window** in Settings to open it when you leave the app mid-video
 - **Pin your favorites:** long-press any menu item to pin it next to the gear as a quick button (speed and aspect show their current value). Pinned buttons scroll sideways, and long-pressing a pinned button unpins it
+- **Screen rotation button** in the player menu: each tap cycles **Portrait → Landscape → Reverse portrait → Reverse landscape → Auto** (Auto is the default and follows your phone's sensor and rotation lock). Pin it next to the gear for one-tap access
 - **Sleep timer** (10, 15, 30, 45, 60 minutes, or end of the video) and **Repeat** for the current video, both in the player menu
 - Full-screen immersive player, with cutout/notch-safe controls
 - **Double-tap** the left or right side to seek ∓10 seconds, **single tap** to show or hide controls
@@ -119,6 +120,7 @@ Allow access to videos when asked. If you skip this, you can still play anything
 | Pick an embedded subtitle track | Gear menu → **Subtitle tracks** |
 | Change subtitle size, color or background | Gear menu → **Subtitle style** (or Settings → Subtitles) |
 | Match and rename subtitle files to their videos | Settings → Subtitles → **Match and rename subtitle files** |
+| Lock or change the screen orientation | Gear menu → **Screen rotation** (each tap picks the next mode) |
 | Stop playback after a while | Gear menu → **Sleep timer** |
 | Open the player menu | Tap the **gear** button at the bottom right of the player (a slim icon rail slides up) |
 | See button names and descriptions | Tap the **>** button at the top of the menu rail |

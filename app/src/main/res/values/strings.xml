@@ -228,6 +228,13 @@
     <string name="match_forgot">Saved folders cleared</string>
     <string name="music_deleted_fmt">%1$d deleted</string>
     <string name="music_delete_failed">Couldn\'t delete every file. Android may have refused it.</string>
+    <string name="menu_rotation">Screen rotation</string>
+    <string name="menu_rotation_desc">Portrait, landscape, reverse or auto</string>
+    <string name="rot_auto">Auto</string>
+    <string name="rot_portrait">Portrait</string>
+    <string name="rot_landscape">Landscape</string>
+    <string name="rot_reverse_portrait">Reverse portrait</string>
+    <string name="rot_reverse_landscape">Reverse landscape</string>
     <string name="settings_nav">Navigation style</string>
     <string name="nav_pill">Pill</string>
     <string name="nav_classic">Classic</string>

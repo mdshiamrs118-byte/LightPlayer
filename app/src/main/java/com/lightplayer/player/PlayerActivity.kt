@@ -29,6 +29,7 @@ import android.app.NotificationManager
 import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
+import android.content.pm.ActivityInfo
 import android.content.IntentFilter
 import android.media.AudioManager
 import android.os.Build
@@ -153,6 +154,18 @@ class PlayerActivity : AppCompatActivity() {
     private var pendingEmbeddedIndex = -1
     private var ttsUri: Uri? = null
 
+    /** Screen rotation choices, in the order the button cycles through them. */
+    private enum class Rotation(val labelRes: Int, val orientation: Int) {
+        PORTRAIT(R.string.rot_portrait, ActivityInfo.SCREEN_ORIENTATION_PORTRAIT),
+        LANDSCAPE(R.string.rot_landscape, ActivityInfo.SCREEN_ORIENTATION_LANDSCAPE),
+        REVERSE_PORTRAIT(R.string.rot_reverse_portrait, ActivityInfo.SCREEN_ORIENTATION_REVERSE_PORTRAIT),
+        REVERSE_LANDSCAPE(R.string.rot_reverse_landscape, ActivityInfo.SCREEN_ORIENTATION_REVERSE_LANDSCAPE),
+        // Follows the phone's sensor and respects the system rotation lock.
+        AUTO(R.string.rot_auto, ActivityInfo.SCREEN_ORIENTATION_FULL_USER)
+    }
+
+    private var rotation = Rotation.AUTO
+
     private enum class SubSource { NONE, EXTERNAL, EMBEDDED }
     private var subSource = SubSource.NONE
     private var externalSubName: String? = null
@@ -255,6 +268,7 @@ class PlayerActivity : AppCompatActivity() {
         speed = Prefs.playbackSpeed(this)
         audioManager = getSystemService(Context.AUDIO_SERVICE) as AudioManager
         subtitleOffsetMs = Prefs.subtitleOffset(this, videoUri.toString())
+        requestedOrientation = rotation.orientation
 
         window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
         enterImmersive()
@@ -808,6 +822,17 @@ class PlayerActivity : AppCompatActivity() {
         }.apply { isDaemon = true; start() }
     }
 
+    // ---------- screen rotation ----------
+
+    /** Portrait, Landscape, Reverse portrait, Reverse landscape, Auto, then round again. */
+    private fun cycleRotation() {
+        val all = Rotation.values()
+        rotation = all[(rotation.ordinal + 1) % all.size]
+        requestedOrientation = rotation.orientation
+        updatePinnedValues()
+        showHud(getString(rotation.labelRes))
+    }
+
     // ---------- repeat and sleep timer ----------
 
     private fun toggleRepeat() {
@@ -1017,6 +1042,11 @@ class PlayerActivity : AppCompatActivity() {
                 id = "aspect", iconRes = R.drawable.ic_aspect,
                 labelRes = R.string.menu_aspect, descRes = R.string.menu_aspect_desc,
                 value = { getString(aspect.labelRes) }, valueAsPill = true, run = { cycleAspect() }
+            ),
+            PlayerAction(
+                id = "rotation", iconRes = R.drawable.ic_rotate,
+                labelRes = R.string.menu_rotation, descRes = R.string.menu_rotation_desc,
+                value = { getString(rotation.labelRes) }, valueAsPill = true, run = { cycleRotation() }
             ),
             PlayerAction(
                 id = "audio", iconRes = R.drawable.ic_music,

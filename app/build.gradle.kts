@@ -20,8 +20,8 @@ android {
         applicationId = "com.lightplayer"
         minSdk = 29          // Android 10
         targetSdk = 34
-        versionCode = 10
-        versionName = "1.8.1"
+        versionCode = 11
+        versionName = "1.9"
     }
 
     signingConfigs {
