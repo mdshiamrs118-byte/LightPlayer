@@ -106,10 +106,10 @@ object TtsTrackRepository {
         return out
     }
 
-    /** "<video> ~ <subtitle> ~ <key8>.wav" fallback when the index is gone. */
+    /** "<subtitle name>.wav" (or the older "<video> ~ <subtitle> ~ <key8>.wav") fallback when the index is gone. */
     private fun parseDisplayName(displayName: String): Pair<String, String> {
         val base = displayName.removeSuffix(".wav").removeSuffix(".WAV")
         val parts = base.split(" ~ ")
-        return if (parts.size >= 3) parts[0] to parts[1] else "" to ""
+        return if (parts.size >= 3) parts[0] to parts[1] else base to base
     }
 }

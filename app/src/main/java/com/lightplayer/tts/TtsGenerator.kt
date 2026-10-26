@@ -10,6 +10,7 @@ import android.os.Looper
 import android.provider.MediaStore
 import com.lightplayer.subtitle.Cue
 import com.lightplayer.util.Prefs
+import com.lightplayer.util.SubtitleMatcher
 import java.io.File
 import java.io.FileInputStream
 import java.io.RandomAccessFile
@@ -43,6 +44,18 @@ class TtsGenerator(private val context: Context) {
     companion object {
         /** A cue is skipped when earlier speech is still running this far past its start. */
         private const val MAX_LAG_MS = 1500L
+
+        /** Audio files are named after the subtitle file they were made from. */
+        fun fileNameFor(subtitleBaseName: String): String = "${sanitize(subtitleBaseName)}.wav"
+
+        private fun sanitize(name: String): String {
+            val sb = StringBuilder(name.length)
+            for (ch in name) sb.append(if (ch in "/\\:*?\"<>|") '_' else ch)
+            var t = sb.toString().trim()
+            if (t.isEmpty()) t = "audio"
+            if (t.length > 100) t = t.substring(0, 100).trim()
+            return t
+        }
 
         fun buildKey(parts: List<String>): String {
             val md = MessageDigest.getInstance("SHA-256")
@@ -179,7 +192,8 @@ class TtsGenerator(private val context: Context) {
 
         val durationMs = header!!.bytesToMs(outFile.length() - WavTools.HEADER_BYTES)
         val sizeBytes = outFile.length()
-        val fileName = "${sanitize(meta.videoTitle)} ~ ${sanitize(meta.subtitleName)} ~ ${meta.key.take(8)}.wav"
+        val subtitleBase = SubtitleMatcher.baseName(meta.subtitleName)
+        val fileName = uniqueFileName(subtitleBase)
 
         val uri = publish(outFile, fileName)
         if (uri == null) {
@@ -192,7 +206,7 @@ class TtsGenerator(private val context: Context) {
             TtsEntry(
                 key = meta.key,
                 uri = uri.toString(),
-                videoTitle = meta.videoTitle,
+                videoTitle = subtitleBase,
                 subtitleName = meta.subtitleName,
                 createdAt = System.currentTimeMillis(),
                 durationMs = durationMs,
@@ -249,13 +263,30 @@ class TtsGenerator(private val context: Context) {
         }
     }
 
-    private fun sanitize(name: String): String {
-        val sb = StringBuilder(name.length)
-        for (ch in name) sb.append(if (ch in "/\\:*?\"<>|") '_' else ch)
-        var t = sb.toString().replace(" ~ ", "-").trim()
-        if (t.isEmpty()) t = "audio"
-        if (t.length > 60) t = t.substring(0, 60)
-        return t
+    /** "<subtitle name>.wav", or "<subtitle name> (2).wav" when a different track already has that name. */
+    private fun uniqueFileName(base: String): String {
+        val taken = HashSet<String>()
+        try {
+            if (Build.VERSION.SDK_INT >= 29) {
+                context.contentResolver.query(
+                    MediaStore.Audio.Media.EXTERNAL_CONTENT_URI,
+                    arrayOf(MediaStore.Audio.Media.DISPLAY_NAME),
+                    "${MediaStore.Audio.Media.RELATIVE_PATH} LIKE ?",
+                    arrayOf("%SubTTS%"),
+                    null
+                )?.use { c -> while (c.moveToNext()) c.getString(0)?.let { taken.add(it.lowercase()) } }
+            } else {
+                TtsIndex(context).all().forEach { taken.add(it.fileName.lowercase()) }
+            }
+        } catch (_: Throwable) {
+        }
+        var name = fileNameFor(base)
+        var n = 2
+        while (name.lowercase() in taken) {
+            name = fileNameFor("$base ($n)")
+            n++
+        }
+        return name
     }
 
     private fun progress(l: Listener, done: Int, total: Int, preparing: Boolean) {
