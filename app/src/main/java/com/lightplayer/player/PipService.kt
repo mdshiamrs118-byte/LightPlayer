@@ -32,6 +32,12 @@ import androidx.media3.exoplayer.source.ProgressiveMediaSource
 import androidx.media3.extractor.DefaultExtractorsFactory
 import com.lightplayer.R
 import com.lightplayer.util.PositionStore
+import com.lightplayer.util.SubtitleReader
+import com.lightplayer.util.SubtitleFolders
+import com.lightplayer.util.SubtitleCache
+import com.lightplayer.subtitle.SubtitleTrack
+import com.lightplayer.subtitle.SubtitleParser
+import androidx.media3.common.text.CueGroup
 import com.lightplayer.util.Prefs
 import com.lightplayer.util.TsCleaner
 
@@ -60,7 +66,10 @@ class PipService : Service(), PipOverlay.Callbacks {
         val playlistUris: List<String>,
         val playlistTitles: List<String>,
         val playlistDurations: LongArray,
-        val playlistIndex: Int
+        val playlistIndex: Int,
+        /** 0 = none, 1 = a loaded subtitle file (handed over in a cache file), 2 = an embedded track. */
+        val subtitleSource: Int = 0,
+        val embeddedSubtitleIndex: Int = -1
     )
 
     companion object {
@@ -88,6 +97,8 @@ class PipService : Service(), PipOverlay.Callbacks {
         private const val X_LIST_TITLES = "list_titles"
         private const val X_LIST_DURATIONS = "list_durations"
         private const val X_LIST_INDEX = "list_index"
+        private const val X_SUB_SOURCE = "sub_source"
+        private const val X_SUB_EMBEDDED = "sub_embedded"
 
         fun start(ctx: Context, s: Session) {
             val intent = Intent(ctx, PipService::class.java)
@@ -110,6 +121,8 @@ class PipService : Service(), PipOverlay.Callbacks {
                 .putStringArrayListExtra(X_LIST_TITLES, ArrayList(s.playlistTitles))
                 .putExtra(X_LIST_DURATIONS, s.playlistDurations)
                 .putExtra(X_LIST_INDEX, s.playlistIndex)
+                .putExtra(X_SUB_SOURCE, s.subtitleSource)
+                .putExtra(X_SUB_EMBEDDED, s.embeddedSubtitleIndex)
             ContextCompat.startForegroundService(ctx, intent)
         }
 
@@ -139,6 +152,15 @@ class PipService : Service(), PipOverlay.Callbacks {
     private var closing = false
     private var subtitleOffset = 0L
 
+    // Subtitles shown in the window: 0 = none, 1 = loaded file, 2 = embedded track.
+    private var subSource = 0
+    private var subName = ""
+    private var subtitleTrack: SubtitleTrack? = null
+    private var lastSubtitleText: String? = null
+    private var pendingEmbeddedSub = -1
+    private var embeddedSubs: List<Pair<Tracks.Group, Int>> = emptyList()
+    private var subToken = 0
+
     private val ticker = object : Runnable {
         override fun run() {
             val p = player ?: return
@@ -149,6 +171,13 @@ class PipService : Service(), PipOverlay.Callbacks {
             val ttsPos = pos - subtitleOffset
             if (ttsPos < 0L) tts.sync(0L, false) else tts.sync(ttsPos, playing)
             extra.sync(pos, playing)
+            if (subSource == 1) {
+                val line = subtitleTrack?.cueAt(pos - subtitleOffset)?.text
+                if (line != lastSubtitleText) {
+                    lastSubtitleText = line
+                    overlay?.setSubtitle(line)
+                }
+            }
             val now = SystemClock.elapsedRealtime()
             if (playing && now - lastSave > 5_000L) {
                 lastSave = now
@@ -212,7 +241,9 @@ class PipService : Service(), PipOverlay.Callbacks {
             playlistUris = intent.getStringArrayListExtra(X_LIST_URIS) ?: arrayListOf(),
             playlistTitles = intent.getStringArrayListExtra(X_LIST_TITLES) ?: arrayListOf(),
             playlistDurations = intent.getLongArrayExtra(X_LIST_DURATIONS) ?: LongArray(0),
-            playlistIndex = intent.getIntExtra(X_LIST_INDEX, 0)
+            playlistIndex = intent.getIntExtra(X_LIST_INDEX, 0),
+            subtitleSource = intent.getIntExtra(X_SUB_SOURCE, 0),
+            embeddedSubtitleIndex = intent.getIntExtra(X_SUB_EMBEDDED, -1)
         )
         session = s
         currentUri = s.uri
@@ -256,6 +287,24 @@ class PipService : Service(), PipOverlay.Callbacks {
             extra.load(s.extraAudioUri, s.positionMs, s.playing) { extraActive = false; extra.enabled = false; p.volume = volume }
         }
 
+        resetSubtitles()
+        when (s.subtitleSource) {
+            1 -> {
+                val token = subToken
+                val appCtx = applicationContext
+                Thread {
+                    val loaded = SubtitleCache.load(appCtx)
+                    handler.post {
+                        if (token == subToken && loaded != null) applyLoadedSubtitle(loaded.first, loaded.second)
+                    }
+                }.apply { isDaemon = true; start() }
+            }
+            2 -> {
+                subSource = 2
+                pendingEmbeddedSub = s.embeddedSubtitleIndex
+            }
+        }
+
         loadMedia(s.uri, s.positionMs)
         handler.removeCallbacks(ticker)
         handler.post(ticker)
@@ -275,7 +324,19 @@ class PipService : Service(), PipOverlay.Callbacks {
         )
         p.setHandleAudioBecomingNoisy(true)
         p.setWakeMode(C.WAKE_MODE_LOCAL)
+        // Subtitles stay off until we ask for a specific one.
+        p.trackSelectionParameters = p.trackSelectionParameters.buildUpon()
+            .setTrackTypeDisabled(C.TRACK_TYPE_TEXT, true)
+            .build()
         p.addListener(object : Player.Listener {
+            override fun onCues(cueGroup: CueGroup) {
+                if (subSource != 2) return
+                val line = cueGroup.cues.mapNotNull { it.text?.toString() }
+                    .filter { it.isNotBlank() }
+                    .joinToString("\n")
+                overlay?.setSubtitle(line)
+            }
+
             override fun onVideoSizeChanged(size: VideoSize) {
                 if (size.width <= 0 || size.height <= 0) return
                 var w = size.width * size.pixelWidthHeightRatio
@@ -287,6 +348,18 @@ class PipService : Service(), PipOverlay.Callbacks {
             }
 
             override fun onTracksChanged(tracks: Tracks) {
+                embeddedSubs = collectText(tracks)
+                val subIndex = pendingEmbeddedSub
+                if (subIndex in embeddedSubs.indices) {
+                    pendingEmbeddedSub = -1
+                    val (group, track) = embeddedSubs[subIndex]
+                    player?.let {
+                        it.trackSelectionParameters = it.trackSelectionParameters.buildUpon()
+                            .setTrackTypeDisabled(C.TRACK_TYPE_TEXT, false)
+                            .setOverrideForType(TrackSelectionOverride(group.mediaTrackGroup, track))
+                            .build()
+                    }
+                }
                 embedded = collectAudio(tracks)
                 val index = pendingEmbedded
                 if (index in embedded.indices) {
@@ -319,6 +392,59 @@ class PipService : Service(), PipOverlay.Callbacks {
             }
         })
         return p
+    }
+
+    private fun collectText(tracks: Tracks): List<Pair<Tracks.Group, Int>> {
+        val out = ArrayList<Pair<Tracks.Group, Int>>()
+        for (group in tracks.groups) {
+            if (group.type != C.TRACK_TYPE_TEXT) continue
+            for (i in 0 until group.length) {
+                if (group.isTrackSupported(i)) out.add(group to i)
+            }
+        }
+        return out
+    }
+
+    private fun resetSubtitles() {
+        subToken++
+        subSource = 0
+        subName = ""
+        subtitleTrack = null
+        lastSubtitleText = null
+        pendingEmbeddedSub = -1
+        overlay?.setSubtitle(null)
+        player?.let {
+            it.trackSelectionParameters = it.trackSelectionParameters.buildUpon()
+                .clearOverridesOfType(C.TRACK_TYPE_TEXT)
+                .setTrackTypeDisabled(C.TRACK_TYPE_TEXT, true)
+                .build()
+        }
+    }
+
+    private fun applyLoadedSubtitle(name: String, parsed: SubtitleTrack) {
+        subtitleTrack = parsed
+        subName = name
+        subSource = 1
+        lastSubtitleText = null
+    }
+
+    /** Next video: look for its subtitle in the user's subtitle folders, like the player does. */
+    private fun autoLoadSubtitle(videoName: String) {
+        if (!Prefs.autoSubtitles(this)) return
+        val token = subToken
+        val appCtx = applicationContext
+        Thread {
+            val found = try { SubtitleFolders.findFor(appCtx, videoName) } catch (_: Throwable) { null }
+            if (found != null) {
+                val text = SubtitleReader.readText(appCtx, found.first)
+                val parsed = if (text == null) null else try { SubtitleParser.parse(found.second, text) } catch (_: Throwable) { null }
+                if (parsed != null && parsed.cues.isNotEmpty()) {
+                    handler.post {
+                        if (token == subToken) applyLoadedSubtitle(found.second, parsed)
+                    }
+                }
+            }
+        }.apply { isDaemon = true; start() }
     }
 
     private fun collectAudio(tracks: Tracks): List<Pair<Tracks.Group, Int>> {
@@ -443,6 +569,9 @@ class PipService : Service(), PipOverlay.Callbacks {
                 .clearOverridesOfType(C.TRACK_TYPE_AUDIO).build()
         }
 
+        resetSubtitles()
+        autoLoadSubtitle(currentTitle)
+
         wantPlay = true
         val start = if (Prefs.resumeEnabled(this)) {
             ((PositionStore.get(this, uri.toString())?.pos ?: 0L) - 2_000L).coerceAtLeast(0L)
@@ -520,6 +649,19 @@ class PipService : Service(), PipOverlay.Callbacks {
             if (s.ttsUri != null && tts.isLoaded) {
                 putExtra(PlayerActivity.EXTRA_TTS_URI, s.ttsUri.toString())
                 putExtra(PlayerActivity.EXTRA_TTS_ENABLED, tts.enabled)
+            }
+            when (subSource) {
+                1 -> subtitleTrack?.let {
+                    SubtitleCache.save(this@PipService, subName, it.cues)
+                    putExtra(PlayerActivity.EXTRA_SUB_SOURCE, "external")
+                }
+                2 -> {
+                    putExtra(PlayerActivity.EXTRA_SUB_SOURCE, "embedded")
+                    putExtra(
+                        PlayerActivity.EXTRA_EMBEDDED_SUB_INDEX,
+                        embeddedSubs.indexOfFirst { it.first.isTrackSelected(it.second) }
+                    )
+                }
             }
             if (s.playlistUris.size > 1) {
                 putStringArrayListExtra(PlayerActivity.EXTRA_PLAYLIST_URIS, ArrayList(s.playlistUris))

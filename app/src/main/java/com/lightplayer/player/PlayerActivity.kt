@@ -40,6 +40,7 @@ import androidx.core.content.ContextCompat
 import com.lightplayer.util.PositionStore
 import com.lightplayer.util.Prefs
 import com.lightplayer.util.SubtitleStyle
+import com.lightplayer.util.SubtitleCache
 import com.lightplayer.util.SubtitleFolders
 import androidx.media3.common.text.CueGroup
 import kotlin.math.abs
@@ -113,6 +114,8 @@ class PlayerActivity : AppCompatActivity() {
         const val EXTRA_AUDIO_NAME = "extra_audio_name"
         const val EXTRA_TTS_URI = "extra_tts_uri"
         const val EXTRA_TTS_ENABLED = "extra_tts_enabled"
+        const val EXTRA_SUB_SOURCE = "extra_sub_source"
+        const val EXTRA_EMBEDDED_SUB_INDEX = "extra_embedded_sub_index"
     }
 
     private enum class Aspect(val labelRes: Int) {
@@ -152,6 +155,7 @@ class PlayerActivity : AppCompatActivity() {
     private var pendingStartMs = -1L          // position handed over by the floating window
     private var pendingPlay = true
     private var pendingEmbeddedIndex = -1
+    private var pendingEmbeddedSubIndex = -1
     private var ttsUri: Uri? = null
 
     /** Screen rotation choices, in the order the button cycles through them. */
@@ -400,6 +404,11 @@ class PlayerActivity : AppCompatActivity() {
             override fun onTracksChanged(tracks: Tracks) {
                 if (released) return
                 embeddedSubs = collectSubtitleTracks(tracks)
+                if (pendingEmbeddedSubIndex in embeddedSubs.indices) {
+                    val wantedSub = embeddedSubs[pendingEmbeddedSubIndex]
+                    pendingEmbeddedSubIndex = -1
+                    selectEmbeddedSubtitle(wantedSub)
+                }
                 embeddedAudio = collectAudioTracks(tracks)
                 if (pendingEmbeddedIndex in embeddedAudio.indices) {
                     val wanted = embeddedAudio[pendingEmbeddedIndex]
@@ -920,6 +929,18 @@ class PlayerActivity : AppCompatActivity() {
         val embeddedIndex = if (selectedExtra >= 0) -1
         else embeddedAudio.indexOfFirst { it.group.isTrackSelected(it.trackIndex) }
 
+        // The subtitle in use goes along, so it keeps showing in the floating window.
+        val loadedTrack = track
+        var pipSubSource = 0
+        if (subSource == SubSource.EXTERNAL && loadedTrack != null) {
+            SubtitleCache.save(this, externalSubName ?: "subtitle", loadedTrack.cues)
+            pipSubSource = 1
+        } else if (subSource == SubSource.EMBEDDED) {
+            pipSubSource = 2
+        }
+        val pipEmbeddedSub =
+            if (pipSubSource == 2) embeddedSubs.indexOfFirst { it.first.isTrackSelected(it.second) } else -1
+
         PipService.start(
             this,
             PipService.Session(
@@ -940,7 +961,9 @@ class PlayerActivity : AppCompatActivity() {
                 playlistUris = playlistUris.map { it.toString() },
                 playlistTitles = playlistTitles,
                 playlistDurations = LongArray(playlistDurations.size) { playlistDurations[it].toLong() },
-                playlistIndex = playlistIndex
+                playlistIndex = playlistIndex,
+                subtitleSource = pipSubSource,
+                embeddedSubtitleIndex = pipEmbeddedSub
             )
         )
 
@@ -978,6 +1001,14 @@ class PlayerActivity : AppCompatActivity() {
             selectExtra(0)
         } else {
             pendingEmbeddedIndex = intent.getIntExtra(EXTRA_EMBEDDED_INDEX, -1)
+        }
+        when (intent.getStringExtra(EXTRA_SUB_SOURCE)) {
+            "external" -> SubtitleCache.load(this)?.let { (name, parsed) ->
+                track = parsed
+                externalSubName = name
+                setSubSource(SubSource.EXTERNAL)
+            }
+            "embedded" -> pendingEmbeddedSubIndex = intent.getIntExtra(EXTRA_EMBEDDED_SUB_INDEX, -1)
         }
         val speech = intent.getStringExtra(EXTRA_TTS_URI)
         if (speech != null) {

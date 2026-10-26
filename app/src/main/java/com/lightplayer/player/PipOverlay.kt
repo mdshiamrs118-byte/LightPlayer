@@ -27,6 +27,7 @@ import android.widget.ProgressBar
 import android.widget.TextView
 import com.lightplayer.R
 import com.lightplayer.util.Prefs
+import com.lightplayer.util.SubtitleStyle
 import kotlin.math.abs
 import kotlin.math.hypot
 
@@ -66,6 +67,7 @@ class PipOverlay(
     private val root = FrameLayout(ctx)
     private val progress = ProgressBar(ctx, null, android.R.attr.progressBarStyleHorizontal)
     private val controls = FrameLayout(ctx)
+    private val subtitleView = TextView(ctx)
     private val hud = ImageView(ctx)
     private val resizeHandle = ImageView(ctx)
     private lateinit var prevButton: ImageView
@@ -113,6 +115,22 @@ class PipOverlay(
         progress.progressTintList = ColorStateList.valueOf(Color.WHITE)
         progress.progressBackgroundTintList = ColorStateList.valueOf(0x33FFFFFF)
         root.addView(progress, FrameLayout.LayoutParams(MATCH, dp(3f), Gravity.BOTTOM))
+
+        // subtitles, kept above the progress line and below the buttons
+        subtitleView.apply {
+            gravity = Gravity.CENTER
+            maxLines = 3
+            setPadding(dp(6f), dp(2f), dp(6f), dp(2f))
+            visibility = View.GONE
+        }
+        root.addView(
+            subtitleView,
+            FrameLayout.LayoutParams(
+                FrameLayout.LayoutParams.WRAP_CONTENT,
+                FrameLayout.LayoutParams.WRAP_CONTENT,
+                Gravity.BOTTOM or Gravity.CENTER_HORIZONTAL
+            ).apply { setMargins(dp(8f), 0, dp(8f), dp(9f)) }
+        )
 
         // play / pause flash for double tap
         hud.apply {
@@ -389,6 +407,30 @@ class PipOverlay(
         nextButton.alpha = if (hasNext) 1f else 0.4f
     }
 
+    /** Shows the current subtitle line (or hides it when [text] is empty). */
+    fun setSubtitle(text: String?) {
+        if (text.isNullOrBlank()) {
+            subtitleView.visibility = View.GONE
+        } else {
+            subtitleView.text = text
+            subtitleView.visibility = View.VISIBLE
+        }
+    }
+
+    /** Applies the user's subtitle style, scaled down to fit the small window. */
+    fun refreshSubtitleStyle() {
+        SubtitleStyle.apply(ctx, subtitleView)
+        applySubtitleScale()
+    }
+
+    private fun applySubtitleScale() {
+        if (!::params.isInitialized) return
+        val (sw, sh) = screenSize()
+        val reference = minOf(sw, sh).toFloat().coerceAtLeast(1f)
+        val base = Prefs.subtitleSize(ctx)
+        subtitleView.textSize = (base * params.width / reference).coerceIn(8f, base)
+    }
+
     fun setProgress(fraction: Float) {
         progress.progress = (fraction.coerceIn(0f, 1f) * 1000).toInt()
     }
@@ -419,6 +461,7 @@ class PipOverlay(
         val w = clampWidth(widthPx)
         params.width = w
         params.height = (w / aspect).toInt()
+        applySubtitleScale()
     }
 
     private fun resizeAroundCenter(newWidth: Int) {
@@ -488,6 +531,7 @@ class PipOverlay(
             y = if (sy >= 0) sy else dp(96f)
         }
         clampPosition()
+        refreshSubtitleStyle()
 
         wm.addView(root, params)
         attached = true
