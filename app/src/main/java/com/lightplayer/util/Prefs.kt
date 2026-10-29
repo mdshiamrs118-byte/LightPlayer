@@ -103,4 +103,15 @@ object Prefs {
     fun setFavorites(context: Context, v: Set<String>) {
         sp(context).edit().putStringSet("favorites", HashSet(v)).apply()
     }
+
+    /** The subtitle a video was last used with: (content key, file name), or null. */
+    fun videoSubtitle(context: Context, videoKey: String): Pair<String, String>? {
+        val raw = sp(context).getString("vsub:$videoKey", null) ?: return null
+        val parts = raw.split('\t', limit = 2)
+        return if (parts.size == 2 && parts[0].isNotEmpty()) parts[0] to parts[1] else null
+    }
+
+    fun setVideoSubtitle(context: Context, videoKey: String, contentKey: String, name: String) {
+        sp(context).edit().putString("vsub:$videoKey", contentKey + "\t" + name.replace('\t', ' ')).apply()
+    }
 }

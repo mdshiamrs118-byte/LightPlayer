@@ -20,11 +20,20 @@ android {
         applicationId = "com.lightplayer"
         minSdk = 29          // Android 10
         targetSdk = 34
-        versionCode = 12
-        versionName = "1.9.1"
+        versionCode = 13
+        versionName = "1.9.2"
     }
 
     signingConfigs {
+        // One fixed key for every build that has no private release key. Without this, each CI
+        // run generates a brand-new debug key, Android refuses to update the installed app, and
+        // reinstalling wipes the app's saved data (generated-audio records, remembered subtitles).
+        getByName("debug") {
+            storeFile = file("lightplayer-debug.keystore")
+            storePassword = "android"
+            keyAlias = "lightplayer"
+            keyPassword = "android"
+        }
         if (hasReleaseKey) {
             create("release") {
                 storeFile = file(releaseKeystore!!)

@@ -9,6 +9,7 @@ import java.io.File
 import android.net.Uri
 import android.provider.MediaStore
 import com.lightplayer.tts.TtsIndex
+import com.lightplayer.tts.TtsNaming
 
 data class TtsTrack(
     val uri: Uri,
@@ -18,7 +19,11 @@ data class TtsTrack(
     val dateAdded: Long,
     val size: Long,
     val durationMs: Long
-)
+) {
+    /** What to call this audio: the subtitle's own name (the video is shown as a second line). */
+    val title: String
+        get() = if (subtitleName.isNotBlank()) TtsNaming.base(subtitleName) else videoTitle
+}
 
 object TtsTrackRepository {
 
@@ -75,12 +80,18 @@ object TtsTrackRepository {
                 var videoTitle = entry?.videoTitle.orEmpty()
                 var subtitleName = entry?.subtitleName.orEmpty()
 
-                if (videoTitle.isEmpty()) {
+                if (subtitleName.isEmpty()) {
+                    // No record: read the name. Older files are "<video> ~ <subtitle> ~ <code>.wav",
+                    // newer ones are simply "<subtitle name>[ [code]].wav".
                     val parsed = parseDisplayName(name)
-                    videoTitle = parsed.first
-                    subtitleName = parsed.second
+                    if (parsed.second.isNotEmpty()) {
+                        videoTitle = parsed.first
+                        subtitleName = parsed.second
+                    } else {
+                        subtitleName = TtsNaming.base(name)
+                    }
                 }
-                if (videoTitle.isEmpty()) videoTitle = name
+                if (videoTitle.isEmpty()) videoTitle = TtsNaming.base(subtitleName.ifEmpty { name })
                 if (duration <= 0) duration = entry?.durationMs ?: 0L
 
                 out.add(
@@ -106,10 +117,10 @@ object TtsTrackRepository {
         return out
     }
 
-    /** "<subtitle name>.wav" (or the older "<video> ~ <subtitle> ~ <key8>.wav") fallback when the index is gone. */
+    /** "<video> ~ <subtitle> ~ <key8>.wav" fallback when the index is gone. */
     private fun parseDisplayName(displayName: String): Pair<String, String> {
         val base = displayName.removeSuffix(".wav").removeSuffix(".WAV")
         val parts = base.split(" ~ ")
-        return if (parts.size >= 3) parts[0] to parts[1] else base to base
+        return if (parts.size >= 3) parts[0] to parts[1] else "" to ""
     }
 }

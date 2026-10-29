@@ -33,6 +33,7 @@ import androidx.media3.extractor.DefaultExtractorsFactory
 import com.lightplayer.R
 import com.lightplayer.util.PositionStore
 import com.lightplayer.util.SubtitleReader
+import com.lightplayer.util.SubtitleStore
 import com.lightplayer.util.SubtitleFolders
 import com.lightplayer.util.SubtitleCache
 import com.lightplayer.subtitle.SubtitleTrack
@@ -429,11 +430,17 @@ class PipService : Service(), PipOverlay.Callbacks {
     }
 
     /** Next video: look for its subtitle in the user's subtitle folders, like the player does. */
-    private fun autoLoadSubtitle(videoName: String) {
-        if (!Prefs.autoSubtitles(this)) return
+    private fun autoLoadSubtitle(videoUri: Uri, videoName: String) {
         val token = subToken
         val appCtx = applicationContext
         Thread {
+            // The subtitle this video was last watched with comes first.
+            val remembered = try { SubtitleStore.recall(appCtx, SubtitleStore.videoKeys(appCtx, videoUri)) } catch (_: Throwable) { null }
+            if (remembered != null) {
+                handler.post { if (token == subToken) applyLoadedSubtitle(remembered.second, remembered.third) }
+                return@Thread
+            }
+            if (!Prefs.autoSubtitles(appCtx)) return@Thread
             val found = try { SubtitleFolders.findFor(appCtx, videoName) } catch (_: Throwable) { null }
             if (found != null) {
                 val text = SubtitleReader.readText(appCtx, found.first)
@@ -570,7 +577,7 @@ class PipService : Service(), PipOverlay.Callbacks {
         }
 
         resetSubtitles()
-        autoLoadSubtitle(currentTitle)
+        autoLoadSubtitle(uri, currentTitle)
 
         wantPlay = true
         val start = if (Prefs.resumeEnabled(this)) {

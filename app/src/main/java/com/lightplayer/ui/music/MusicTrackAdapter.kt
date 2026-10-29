@@ -42,9 +42,11 @@ class MusicTrackAdapter(
 
     inner class VH(private val b: ItemTrackBinding) : RecyclerView.ViewHolder(b.root) {
         fun bind(track: TtsTrack) {
-            b.trackTitle.text = track.videoTitle
+            b.trackTitle.text = track.title
             b.trackSub.text =
-                if (track.subtitleName.isNotBlank()) track.subtitleName else track.displayName
+                if (track.videoTitle.isNotBlank() && track.videoTitle != track.title)
+                    itemView.context.getString(R.string.music_for_video_fmt, track.videoTitle)
+                else track.displayName
 
             val parts = ArrayList<String>()
             if (track.dateAdded > 0) parts.add(Formats.date(track.dateAdded))

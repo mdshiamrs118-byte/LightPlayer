@@ -79,7 +79,8 @@ It has no ads, no accounts and no internet requirement. Everything stays on your
 - Reads **SRT**, **WebVTT** and **ASS/SSA** subtitle files (UTF-8, UTF-16 and Windows-1252 are detected automatically)
 - Shows the subtitles over the video
 - Generates a **spoken audio track** from the subtitles with the system TTS engine, and plays it with its own volume slider
-- Generated tracks are saved to your **Music** folder and listed in the Music tab, so they are only generated once per video and subtitle pair
+- Generated audio is saved in **Music/SubTTS**, named after the subtitle file it came from (`episode1.vtt` becomes `episode1.wav`). Picking a subtitle that already has audio just uses that audio, no matter which video you are watching or how you opened it
+- **Remembers the subtitle for each video:** pick a subtitle once and the next time you open that video the same subtitle (and its audio, if it was generated) comes back by itself
 - **Batch conversion:** in the Music tab, tap **Convert subtitles to audio**, select as many subtitle files as you like, and they are converted one after another with a progress dialog and a summary at the end
 - **Never converts twice:** if a subtitle already has audio (made earlier in the player, in the Music tab, or earlier in the same batch), the existing audio is reused instead of being generated again
 - Settings for TTS engine, speech rate and pitch
@@ -143,7 +144,7 @@ Allow access to videos when asked. If you skip this, you can still play anything
 When you add an external audio track, it **replaces** the video's own audio. Switch back by choosing one of the embedded tracks in the **♪** menu. The track follows the video when you seek or pause. If it is shorter than the video, it simply stops at its end.
 
 ### About subtitle-to-speech
-Speech is generated once, then cached. Audio is matched by the **content of the subtitle** (its lines and timing), not by file name or video, so the same subtitles never get converted twice, whether you load them in the player or convert them in bulk from the Music tab. Audio you already generated with an earlier version of the app is recognised too. Quality and available voices depend on the TTS engine installed on your phone (for example Google Speech Services), which you can pick in **Settings**.
+Speech is generated once, then reused. Light Player recognises a subtitle by its **content** (its lines and timing) and also by its file name, so the same subtitles are never converted twice, whether you load them in the player or convert them in bulk from the Music tab. Audio from earlier versions of the app, and audio whose record was lost (for example after clearing the app's data), is found again by looking in `Music/SubTTS`.
 
 ## 🛠 Building from source
 
@@ -156,14 +157,14 @@ cd LightPlayer
 ./gradlew assembleRelease    # APK in app/build/outputs/apk/release/
 ```
 
-The release build is signed with the debug key, so the APK is always installable without extra setup.
+Builds without a private key are signed with the fixed key in `app/lightplayer-debug.keystore`, so every build installs over the previous one and keeps your saved data (generated-audio records, remembered subtitles).
 
 ### Automatic builds
 Every push runs the workflow in [`.github/workflows/android.yml`](.github/workflows/android.yml), which builds debug and release APKs and uploads them as the **LightPlayer-APK** artifact (kept for 30 days).
 
 ## 🔏 Release signing and publishing
 
-By default the release APK is signed with the debug key, which works for installing but changes if you ever build somewhere else. To sign with **your own key** (so every update installs over the last one):
+By default the APK is signed with the fixed key committed in `app/lightplayer-debug.keystore`. To sign with **your own key** (so every update installs over the last one):
 
 1. Create a keystore once, on any computer or in Termux (`pkg install openjdk-17`), and **keep the file and passwords safe, you can't recover them**:
    ```bash

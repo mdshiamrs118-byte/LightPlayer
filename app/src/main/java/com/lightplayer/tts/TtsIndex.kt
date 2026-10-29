@@ -22,35 +22,46 @@ data class TtsEntry(
 class TtsIndex(context: Context) {
 
     private val file = File(context.applicationContext.filesDir, "tts_index.json")
-    private val entries = ArrayList<TtsEntry>()
 
-    init { load() }
+    // Every TtsIndex(...) instance shares one list, so a record added by the generator is seen
+    // at once by the player, and one instance can never overwrite another's newer records.
+    private companion object {
+        val LOCK = Any()
+        var shared: ArrayList<TtsEntry>? = null
+    }
 
-    @Synchronized fun all(): List<TtsEntry> = ArrayList(entries)
+    private val entries: ArrayList<TtsEntry>
+        get() = synchronized(LOCK) {
+            shared ?: ArrayList<TtsEntry>().also { shared = it; load(it) }
+        }
 
-    @Synchronized fun findByKey(key: String): TtsEntry? =
+    fun all(): List<TtsEntry> = synchronized(LOCK) { ArrayList(entries) }
+
+    fun findByKey(key: String): TtsEntry? = synchronized(LOCK) {
         entries.firstOrNull { it.key == key }
+    }
 
-    @Synchronized fun findByUri(uri: String): TtsEntry? =
+    fun findByUri(uri: String): TtsEntry? = synchronized(LOCK) {
         entries.firstOrNull { it.uri == uri }
+    }
 
-    @Synchronized fun add(entry: TtsEntry) {
+    fun add(entry: TtsEntry) = synchronized(LOCK) {
         entries.removeAll { it.key == entry.key || it.uri == entry.uri }
         entries.add(entry)
         save()
     }
 
-    @Synchronized fun remove(uri: String) {
+    fun remove(uri: String) = synchronized(LOCK) {
         entries.removeAll { it.uri == uri }
         save()
     }
 
-    @Synchronized fun clear() {
+    fun clear() = synchronized(LOCK) {
         entries.clear()
         save()
     }
 
-    private fun load() {
+    private fun load(entries: ArrayList<TtsEntry>) {
         if (!file.exists()) return
         try {
             val arr = JSONArray(file.readText())
@@ -95,7 +106,13 @@ class TtsIndex(context: Context) {
                 )
             }
             file.parentFile?.mkdirs()
-            file.writeText(arr.toString())
+            // Write to a temporary file first so a crash can never leave a half-written index.
+            val tmp = File(file.parentFile, file.name + ".tmp")
+            tmp.writeText(arr.toString())
+            if (!tmp.renameTo(file)) {
+                file.writeText(arr.toString())
+                tmp.delete()
+            }
         } catch (t: Throwable) {
             // Non-fatal: index is a cache accelerator, files remain the source of truth.
         }

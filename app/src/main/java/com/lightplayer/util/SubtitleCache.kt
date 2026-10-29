@@ -14,9 +14,14 @@ object SubtitleCache {
 
     private const val FILE = "pip_subtitle.txt"
 
-    fun save(ctx: Context, name: String, cues: List<Cue>) {
+    fun save(ctx: Context, name: String, cues: List<Cue>) = writeTo(File(ctx.cacheDir, FILE), name, cues)
+
+    fun load(ctx: Context): Pair<String, SubtitleTrack>? = readFrom(File(ctx.cacheDir, FILE))
+
+    fun writeTo(file: File, name: String, cues: List<Cue>) {
         try {
-            File(ctx.cacheDir, FILE).bufferedWriter().use { w ->
+            file.parentFile?.mkdirs()
+            file.bufferedWriter().use { w ->
                 w.write(name.replace('\n', ' '))
                 w.newLine()
                 for (c in cues) {
@@ -28,8 +33,7 @@ object SubtitleCache {
         }
     }
 
-    fun load(ctx: Context): Pair<String, SubtitleTrack>? {
-        val file = File(ctx.cacheDir, FILE)
+    fun readFrom(file: File): Pair<String, SubtitleTrack>? {
         if (!file.exists()) return null
         return try {
             file.bufferedReader().use { r ->

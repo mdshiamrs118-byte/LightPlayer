@@ -41,8 +41,8 @@ import com.lightplayer.util.PositionStore
 import com.lightplayer.util.Prefs
 import com.lightplayer.util.SubtitleStyle
 import com.lightplayer.util.SubtitleCache
-import com.lightplayer.util.SubtitleMemory
 import com.lightplayer.util.SubtitleFolders
+import com.lightplayer.util.SubtitleStore
 import androidx.media3.common.text.CueGroup
 import kotlin.math.abs
 import kotlin.math.roundToInt
@@ -89,9 +89,11 @@ import com.lightplayer.subtitle.SubtitleParser
 import com.lightplayer.subtitle.SubtitleTrack
 import com.lightplayer.tts.TtsGenerator
 import com.lightplayer.tts.TtsCache
+import com.lightplayer.tts.TtsEntry
 import com.lightplayer.tts.TtsIndex
 import com.lightplayer.util.DurationCache
 import com.lightplayer.util.Formats
+import com.lightplayer.util.MediaFiles
 import java.util.Locale
 
 class PlayerActivity : AppCompatActivity() {
@@ -448,7 +450,7 @@ class PlayerActivity : AppCompatActivity() {
         if (startMs > 0L) {
             Toast.makeText(this, getString(R.string.player_resumed_fmt, Formats.time(startMs)), Toast.LENGTH_SHORT).show()
         }
-        autoLoadSubtitle(token)
+        restoreRememberedSubtitle(token)
         Thread {
             val layout = try { TsCleaner.analyze(appCtx, uri) } catch (_: Throwable) { null }
             mainHandler.post {
@@ -816,24 +818,60 @@ class PlayerActivity : AppCompatActivity() {
         updatePinnedValues()
     }
 
+    /** Remembers which subtitle goes with this video, so it comes back next time. */
+    private fun rememberSubtitle(name: String, parsed: SubtitleTrack) {
+        val uri = videoUri ?: return
+        val appCtx = applicationContext
+        Thread {
+            try {
+                SubtitleStore.remember(appCtx, SubtitleStore.videoKeys(appCtx, uri), TtsCache.contentKey(parsed.cues), name, parsed.cues)
+            } catch (_: Throwable) {
+            }
+        }.apply { isDaemon = true; start() }
+    }
+
+    /**
+     * Brings back the subtitle this video was last watched with, and its generated audio if
+     * that exists. Falls back to looking in the user's subtitle folders.
+     */
+    private fun restoreRememberedSubtitle(token: Int) {
+        val uri = videoUri
+        if (uri == null) {
+            autoLoadSubtitle(token)
+            return
+        }
+        val appCtx = applicationContext
+        Thread {
+            val remembered = try { SubtitleStore.recall(appCtx, SubtitleStore.videoKeys(appCtx, uri)) } catch (_: Throwable) { null }
+            val audio = if (remembered != null) {
+                try { TtsCache.find(appCtx, TtsIndex(appCtx), remembered.second, remembered.third.cues) } catch (_: Throwable) { null }
+            } else {
+                null
+            }
+            mainHandler.post {
+                if (released || token != loadToken || track != null) return@post
+                if (remembered == null) {
+                    autoLoadSubtitle(token)
+                    return@post
+                }
+                track = remembered.third
+                externalSubName = remembered.second
+                setSubSource(SubSource.EXTERNAL)
+                if (audio != null) {
+                    loadTtsTrack(Uri.parse(audio.uri))
+                    updateTtsChip()
+                }
+                Toast.makeText(this, getString(R.string.sub_restored_fmt, remembered.second), Toast.LENGTH_SHORT).show()
+            }
+        }.apply { isDaemon = true; start() }
+    }
+
     /** Looks in the user's subtitle folders for a file that matches this video. */
     private fun autoLoadSubtitle(token: Int) {
-        if (track != null) return
-        val autoFind = Prefs.autoSubtitles(this)
+        if (!Prefs.autoSubtitles(this) || track != null) return
         val name = videoTitle
         val appCtx = applicationContext
         Thread {
-            // A subtitle the user picked for this video before comes first (with its speech, if made).
-            val saved = currentVideoId()?.let { SubtitleMemory.load(appCtx, it) }
-            if (saved != null) {
-                mainHandler.post {
-                    if (released || token != loadToken || track != null) return@post
-                    applySubtitle(saved.name, saved.text, withSpeech = true, quiet = true,
-                        remember = false, generateIfMissing = false)
-                }
-                return@Thread
-            }
-            if (!autoFind) return@Thread
             val found = try { SubtitleFolders.findFor(appCtx, name) } catch (_: Throwable) { null }
             if (found != null) {
                 mainHandler.post {
@@ -1863,72 +1901,34 @@ class PlayerActivity : AppCompatActivity() {
                     if (!quiet) Toast.makeText(this, R.string.player_bad_subtitle, Toast.LENGTH_SHORT).show()
                     return@post
                 }
-                applySubtitle(result.first, result.second, withSpeech, quiet, remember = withSpeech)
-            }
-        }.start()
-    }
-
-    /**
-     * Shows a subtitle given as text. [remember] ties it to this video for next time;
-     * [generateIfMissing] false only reuses speech that already exists.
-     */
-    private fun applySubtitle(
-        name: String, text: String, withSpeech: Boolean, quiet: Boolean,
-        remember: Boolean, generateIfMissing: Boolean = true
-    ) {
-        val outcome = runCatching { SubtitleParser.parse(name, text) }
-        val parsed = outcome.getOrNull()
-        if (parsed == null) {
-            if (!quiet) {
-                val why = outcome.exceptionOrNull()?.toString() ?: "unknown error"
-                Toast.makeText(this, getString(R.string.player_subtitle_error, name, why), Toast.LENGTH_LONG).show()
-            }
-            return
-        }
-        if (parsed.cues.isEmpty()) {
-            if (!quiet) {
-                Toast.makeText(this, getString(R.string.player_no_subtitles_fmt, name, text.length), Toast.LENGTH_LONG).show()
-            }
-            return
-        }
-        track = parsed
-        externalSubName = name
-        setSubSource(SubSource.EXTERNAL)
-        if (remember) rememberSubtitle(name, text)
-        if (withSpeech) {
-            if (generateIfMissing) b.ttsChip.alpha = 1f
-            beginTts(parsed, name, generateIfMissing)
-        } else if (quiet) {
-            Toast.makeText(this, getString(R.string.sub_auto_loaded_fmt, name), Toast.LENGTH_SHORT).show()
-        }
-    }
-
-    /** The video's identity for "which subtitle goes with it": display name + size. Does file I/O. */
-    private fun currentVideoId(): String? {
-        val uri = videoUri ?: return null
-        var name: String? = null
-        var size = 0L
-        try {
-            contentResolver.query(uri, arrayOf(OpenableColumns.DISPLAY_NAME, OpenableColumns.SIZE), null, null, null)?.use { c ->
-                if (c.moveToFirst()) {
-                    val n = c.getColumnIndex(OpenableColumns.DISPLAY_NAME)
-                    val z = c.getColumnIndex(OpenableColumns.SIZE)
-                    if (n >= 0) name = c.getString(n)
-                    if (z >= 0 && !c.isNull(z)) size = c.getLong(z)
+                val (name, text) = result
+                val outcome = runCatching { SubtitleParser.parse(name, text) }
+                val parsed = outcome.getOrNull()
+                if (parsed == null) {
+                    if (!quiet) {
+                        val why = outcome.exceptionOrNull()?.toString() ?: "unknown error"
+                        Toast.makeText(this, getString(R.string.player_subtitle_error, name, why), Toast.LENGTH_LONG).show()
+                    }
+                    return@post
+                }
+                if (parsed.cues.isEmpty()) {
+                    if (!quiet) {
+                        Toast.makeText(this, getString(R.string.player_no_subtitles_fmt, name, text.length), Toast.LENGTH_LONG).show()
+                    }
+                    return@post
+                }
+                track = parsed
+                externalSubName = name
+                setSubSource(SubSource.EXTERNAL)
+                if (!quiet) rememberSubtitle(name, parsed)
+                if (withSpeech) {
+                    b.ttsChip.alpha = 1f
+                    beginTts(parsed, name, uri)
+                } else if (quiet) {
+                    Toast.makeText(this, getString(R.string.sub_auto_loaded_fmt, name), Toast.LENGTH_SHORT).show()
                 }
             }
-        } catch (_: Throwable) {
-        }
-        val shown = name ?: videoTitle
-        return if (shown.isBlank()) null else SubtitleMemory.videoId(shown, size)
-    }
-
-    private fun rememberSubtitle(name: String, text: String) {
-        val appCtx = applicationContext
-        Thread {
-            val id = currentVideoId() ?: return@Thread
-            SubtitleMemory.save(appCtx, id, name, text)
-        }.apply { isDaemon = true; start() }
+        }.start()
     }
 
     private fun readSubtitle(uri: Uri): Pair<String, String>? {
@@ -1954,31 +1954,45 @@ class PlayerActivity : AppCompatActivity() {
         }
     }
 
-    private fun beginTts(parsed: SubtitleTrack, subName: String, generateIfMissing: Boolean = true) {
-        // The speech depends only on the subtitle's lines and timing, never on the video, so the
-        // same subtitle always maps to the same audio, whichever video it is used with.
-        val contentKey = TtsCache.contentKey(parsed.cues)
-        val key = contentKey
+    private fun beginTts(parsed: SubtitleTrack, subName: String, subUri: Uri) {
+        val key = TtsGenerator.buildKey(
+            listOf(
+                videoUri.toString(),
+                declaredDuration.toString(),
+                subUri.toString(),
+                subName
+            )
+        )
         val appCtx = applicationContext
 
-        // ---- already converted (here or from the Music tab)? ----
+        // Looking for audio that already exists reads files, so it happens off the main thread.
         Thread {
-            val reuse = try {
-                TtsCache.find(appCtx, TtsIndex(appCtx), subName, parsed.cues)
-            } catch (_: Throwable) { null }
+            val index = TtsIndex(appCtx)
+            var reuse: TtsEntry? = null
+            val cached = index.findByKey(key)
+            if (cached != null) {
+                if (MediaFiles.exists(appCtx, Uri.parse(cached.uri))) reuse = cached else index.remove(cached.uri)
+            }
+            // Same subtitle already converted (here, in the Music tab, or by an older version)?
+            if (reuse == null) {
+                reuse = try { TtsCache.find(appCtx, index, subName, parsed.cues) } catch (_: Throwable) { null }
+            }
+            val found = reuse
             mainHandler.post {
-                if (released || isFinishing || isDestroyed || track !== parsed) return@post
-                if (reuse != null) {
-                    loadTtsTrack(Uri.parse(reuse.uri))
+                if (released || isFinishing) return@post
+                if (found != null) {
+                    loadTtsTrack(Uri.parse(found.uri))
                     Toast.makeText(this, R.string.player_tts_loaded_cache, Toast.LENGTH_SHORT).show()
-                } else if (generateIfMissing) {
-                    startGenerating(parsed, subName, key, contentKey)
+                } else {
+                    generateTts(parsed, subName, key)
                 }
             }
         }.apply { isDaemon = true; start() }
     }
 
-    private fun startGenerating(parsed: SubtitleTrack, subName: String, key: String, contentKey: String) {
+    private fun generateTts(parsed: SubtitleTrack, subName: String, key: String) {
+        val contentKey = TtsCache.contentKey(parsed.cues)
+
         // ---- generate ----
         val duration = if (ready && durationMs() > 0) durationMs() else declaredDuration
         showGeneratingDialog()

@@ -11,9 +11,9 @@ object MediaFiles {
      */
     fun exists(ctx: Context, uri: Uri): Boolean = try {
         ctx.contentResolver.openFileDescriptor(uri, "r")?.use { true } ?: false
-    } catch (_: SecurityException) {
-        true   // cannot tell; assume it is there rather than hiding a real file
+    } catch (_: java.io.FileNotFoundException) {
+        false  // the media library lists it, but the file is really gone
     } catch (_: Throwable) {
-        false
+        true   // cannot tell (permission, busy provider...): never throw a record away on a guess
     }
 }

@@ -163,7 +163,7 @@ class MusicFragment : Fragment() {
             mp.start()
             TransitionManager.beginDelayedTransition(binding.root as ViewGroup)
             binding.nowPlaying.visibility = View.VISIBLE
-            binding.npTitle.text = track.videoTitle
+            binding.npTitle.text = track.title
             binding.npPlay.setImageResource(R.drawable.ic_pause)
             binding.npSeek.max = mp.duration.coerceAtLeast(1)
             adapter.playingUri = track.uri
@@ -218,7 +218,7 @@ class MusicFragment : Fragment() {
         val ctx = requireContext()
         ThemeManager.themed(ThemeManager.dialogBuilder(ctx)
             .setTitle(R.string.music_delete_title)
-            .setMessage(getString(R.string.music_delete_msg, track.videoTitle))
+            .setMessage(getString(R.string.music_delete_msg, track.title))
             .setPositiveButton(R.string.action_delete) { _, _ ->
                 val wasPlaying = currentUri == track.uri
                 if (wasPlaying) stopPlayback()

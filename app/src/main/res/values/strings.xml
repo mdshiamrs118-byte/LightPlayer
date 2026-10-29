@@ -235,6 +235,8 @@
     <string name="rot_landscape">Landscape</string>
     <string name="rot_reverse_portrait">Reverse portrait</string>
     <string name="rot_reverse_landscape">Reverse landscape</string>
+    <string name="music_for_video_fmt">For %1$s</string>
+    <string name="sub_restored_fmt">Subtitles restored: %1$s</string>
     <string name="settings_nav">Navigation style</string>
     <string name="nav_pill">Pill</string>
     <string name="nav_classic">Classic</string>
